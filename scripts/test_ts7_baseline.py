@@ -41,6 +41,14 @@ class BaselineChecksTest(unittest.TestCase):
         self.assertEqual(fixture.count(b"\x00\x00\x01\x65"), 12)
         self.assertNotEqual(baseline.FIXTURE_SHA, baseline.LEGACY_FIXTURE_SHA)
 
+    def test_full_source_gate_checks_current_and_preserved_fixtures(self):
+        repo = Path(__file__).resolve().parents[1]
+        report = baseline.source(repo)
+        self.assertEqual(report["status"], "SOURCE_INSPECTION_PASS")
+        self.assertEqual(report["fixture_sha256"], baseline.FIXTURE_SHA)
+        self.assertEqual(report["legacy_fixture_sha256"], baseline.LEGACY_FIXTURE_SHA)
+        self.assertTrue(report["unchanged_media_sink_except_reviewed_logging"])
+
     def test_elf_rejects_a_renamed_x86_library(self):
         header = bytearray(24)
         header[:6] = b"\x7fELF\x01\x01"

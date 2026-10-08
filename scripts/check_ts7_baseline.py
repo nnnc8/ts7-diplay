@@ -180,13 +180,16 @@ def source(repo, require_clean=False):
         require("offline-mfi" not in path.parts and ".private" not in path.parts, "SOURCE_CREDENTIAL_DIRECTORY")
         require(not PRIVATE_KEY.search(path.read_bytes()), "SOURCE_PRIVATE_KEY_BLOCK")
     fixture = base64.b64decode((repo / FIXTURE).read_bytes(), validate=False)
-    require(sha(fixture) == FIXTURE_SHA and len(fixture) == 1320, "SYNTHETIC_FIXTURE_CHANGED")
+    require(sha(fixture) == FIXTURE_SHA and len(fixture) == 276, "SYNTHETIC_FIXTURE_CHANGED")
+    legacy = base64.b64decode((repo / LEGACY_FIXTURE).read_bytes(), validate=False)
+    require(sha(legacy) == LEGACY_FIXTURE_SHA and len(legacy) == 1320, "LEGACY_FIXTURE_NOT_PRESERVED")
     if require_clean:
         require(clean(repo), "SOURCE_WORKTREE_DIRTY")
     return {"status": "SOURCE_INSPECTION_PASS", "retained_files": len(names),
             "retained_upstream_commits": len(ancestors), "unchanged_notices": len(notices),
             "upstream_ancestor": True, "unchanged_media_sink_except_reviewed_logging": True,
             "source_tree_sha256": source_digest(repo), "fixture_sha256": FIXTURE_SHA,
+            "legacy_fixture_sha256": LEGACY_FIXTURE_SHA,
             "working_tree_clean": clean(repo)}
 
 
