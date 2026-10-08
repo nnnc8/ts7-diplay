@@ -20,6 +20,8 @@ ancestry connection to the original DiPlay repository.
 Original-source local build PASS: JDK25.0.4.1, wrapper Gradle9.5.0 (upstream
 checksum), AGP9.3.0, SDK37.0, build-tools36.0.0, NDK25.2.9519653. No rewritten
 build system. Invoke the original non-executable wrapper with `bash gradlew`.
+The compatibility branch only restores its executable file mode for the
+unchanged upstream workflow; the wrapper bytes and pristine branch are untouched.
 
 ```
 bash gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :mobile:assembleDebug --no-daemon --max-workers=4

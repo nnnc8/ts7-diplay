@@ -324,6 +324,17 @@ def inspect_permissions(manifest):
     return sorted(requested)
 
 
+def debug_signer_digest(signature):
+    # JDK/apksigner versions can print the same X.500 fields in reverse order.
+    names = re.findall(rb"^Signer #1 certificate DN: (.+)$", signature, re.M)
+    require(len(names) == 1 and sorted(names[0].strip().split(b", ")) ==
+            [b"C=US", b"CN=Android Debug", b"O=Android"], "TEST_DEBUG_SIGNER_REQUIRED")
+    require(re.search(rb"^Number of signers: 1\s*$", signature, re.M), "SINGLE_DEBUG_SIGNER_REQUIRED")
+    digest = re.findall(rb"^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})\s*$", signature, re.M)
+    require(len(digest) == 1, "SIGNER_DIGEST_MISSING")
+    return digest[0].decode().lower()
+
+
 def inspect_apk(repo, path, test_apk=None):
     require(path.is_file(), "BASELINE_APK_MISSING")
     badging = command([sdk_tool("aapt2"), "dump", "badging", str(path)]).decode(errors="replace")
@@ -370,9 +381,7 @@ def inspect_apk(repo, path, test_apk=None):
                 elf(data, elf_class, machine)
                 native[entry] = {"elf_class": elf_class, "e_machine": machine, "sha256": sha(data)}
     signature = command([sdk_tool("apksigner"), "verify", "--verbose", "--print-certs", str(path)])
-    require(b"CN=Android Debug, O=Android, C=US" in signature, "TEST_DEBUG_SIGNER_REQUIRED")
-    digest = re.search(rb"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})", signature)
-    require(digest is not None, "SIGNER_DIGEST_MISSING")
+    signer_digest = debug_signer_digest(signature)
     if test_apk:
         require(test_apk.is_file(), "TEST_APK_MISSING")
         test_manifest = command([sdk_tool("aapt2"), "dump", "xmltree", str(test_apk), "--file", "AndroidManifest.xml"])
@@ -381,7 +390,7 @@ def inspect_apk(repo, path, test_apk=None):
             fixture = archive.read("assets/ts7-baseline/red.h264.base64")
             require(sha(base64.b64decode(fixture)) == FIXTURE_SHA, "TEST_APK_FIXTURE_MISMATCH")
     return {"status": "APK_INSPECTION_PASS", "application_id": APPLICATION, "min_sdk": int(sdk[1]),
-            "apk_sha256": sha(path.read_bytes()), "signer_certificate_sha256": digest[1].decode().lower(),
+            "apk_sha256": sha(path.read_bytes()), "signer_certificate_sha256": signer_digest,
             "native_libraries": native, "identity_free": True, "permissions": permissions,
             "boot_receiver_disabled": True, "test_artifacts_in_install_apk": False}
 

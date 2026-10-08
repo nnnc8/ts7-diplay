@@ -38,6 +38,19 @@ class BaselineChecksTest(unittest.TestCase):
         with self.assertRaises(baseline.CheckFailure):
             baseline.elf(header, 1, 40)
 
+    def test_debug_signer_field_order_and_strict_identity(self):
+        prefix = b"Number of signers: 1\nSigner #1 certificate DN: "
+        suffix = b"\nSigner #1 certificate SHA-256 digest: " + b"a" * 64 + b"\n"
+        for fields in (b"CN=Android Debug, O=Android, C=US", b"C=US, O=Android, CN=Android Debug"):
+            self.assertEqual(baseline.debug_signer_digest(prefix + fields + suffix), "a" * 64)
+        for fields in (b"CN=Production, O=Android, C=US", b"CN=Android Debug, O=Android",
+                       b"CN=Android Debug, O=Android, C=US, OU=Unverified"):
+            with self.assertRaises(baseline.CheckFailure):
+                baseline.debug_signer_digest(prefix + fields + suffix)
+        with self.assertRaises(baseline.CheckFailure):
+            baseline.debug_signer_digest((prefix + b"CN=Android Debug, O=Android, C=US" + suffix)
+                                        .replace(b"Number of signers: 1", b"Number of signers: 2"))
+
     def manifest(self, permission="android.permission.INTERNET", enabled="false", extra=""):
         return f'''E: manifest (line=1)
   A: package="com.shihab.diplay.ts7"
