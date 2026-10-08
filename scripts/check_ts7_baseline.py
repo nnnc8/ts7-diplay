@@ -417,6 +417,14 @@ def parse_instrumentation(raw, source_sha):
             codes[name] = candidate if candidate in literals else "FAILURE_CODE_NOT_REPORTED"
     details = {"checks": checks, "failure_codes": codes, "api": 27,
                "real_ts7": "NOT_RUN", "real_iphone": "NOT_RUN", "phone_session_proven": False}
+    phase = results.get("ts7.media_phase", "NOT_REPORTED")
+    details["media_probe"] = {
+        "phase": phase if phase in {"FIRST_SURFACE", "REATTACHED_SURFACE", "RESTARTED_STREAM"} else "NOT_REPORTED",
+        "decoder_output": results.get("ts7.media_decoder_output") if results.get("ts7.media_decoder_output") in {"YES", "NO"} else "NOT_REPORTED",
+    }
+    for key in ("frames", "red_frames", "decoder_errors"):
+        value = results.get(f"ts7.media_{key}", "")
+        details["media_probe"][key] = int(value) if re.fullmatch(r"[0-9]{1,3}", value) else None
 
     def valid(condition, code):
         if not condition:

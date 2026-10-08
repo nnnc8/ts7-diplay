@@ -41,6 +41,8 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;25.2.9519653
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Validate checker rejection and sanitized result paths
         run: python3 fork/scripts/test_ts7_baseline.py
       - name: Pristine original tests, lint and debug build (APK stays private)
@@ -76,6 +78,8 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;25.2.9519653
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: All original files, history, notices and unchanged decoder
         run: python3 fork/scripts/check_ts7_baseline.py source --repo fork --require-clean --output reports/source.json
       - name: TS7 tests, lint, app and native instrumentation APK

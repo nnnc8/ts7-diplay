@@ -109,6 +109,19 @@ class BaselineChecksTest(unittest.TestCase):
             with self.assertRaises(baseline.InstrumentationFailure):
                 baseline.parse_instrumentation(raw, baseline.UPSTREAM)
 
+    def test_media_failure_detail_is_numeric_or_allowlisted(self):
+        raw = b"INSTRUMENTATION_RESULT: ts7.media_phase=FIRST_SURFACE\n" + \
+            b"INSTRUMENTATION_RESULT: ts7.media_frames=12\n" + \
+            b"INSTRUMENTATION_RESULT: ts7.media_red_frames=0\n" + \
+            b"INSTRUMENTATION_RESULT: ts7.media_decoder_output=YES\n" + \
+            b"INSTRUMENTATION_RESULT: ts7.media_decoder_errors=1234\n" + self.output(failed="media_surface_lifecycle")
+        with self.assertRaises(baseline.InstrumentationFailure) as result:
+            baseline.parse_instrumentation(raw, baseline.UPSTREAM)
+        self.assertEqual(result.exception.details["media_probe"], {
+            "phase": "FIRST_SURFACE", "frames": 12, "red_frames": 0,
+            "decoder_output": "YES", "decoder_errors": None,
+        })
+
     def test_private_header_literal_is_not_a_credential(self):
         literal = b'rb"-----BEGIN PRIVATE KEY-----\\s+[A-Za-z0-9+/=]{40,}"'
         self.assertIsNone(baseline.PRIVATE_KEY.search(literal))

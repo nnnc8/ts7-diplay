@@ -250,6 +250,7 @@ class BaselineInstrumentation : Instrumentation() {
         val workers = mutableListOf<Any>()
         val diagnostics = CopyOnWriteArrayList<String>()
         val states = CopyOnWriteArrayList<Boolean>()
+        var phase = "FIRST_SURFACE"
         sink.setScreenStreamActiveChangedListener { type, active -> if (type == 110) states.add(active) }
         fun probe() = SurfaceFrameProbe().also { probes.add(it) }
         fun configure(output: SurfaceFrameProbe): Any {
@@ -265,13 +266,24 @@ class BaselineInstrumentation : Instrumentation() {
         }
         fun render(output: SurfaceFrameProbe) {
             val before = output.frames.get()
+            val redBefore = output.redPixels.get()
             for (frame in fixture.frames) {
                 sink.onVideoFrame(110, frame)
                 SystemClock.sleep(100) // Feed at fixture cadence, below the upstream 250ms queue limit.
             }
-            awaitCheck("SURFACE_FRAME_OR_PIXEL_MISSING") {
-                output.demandHealthy()
-                output.frames.get() >= before + 3 && output.redPixels.get() >= 3 && output.timestamp.get() > 0
+            try {
+                awaitCheck("SURFACE_FRAME_CALLBACK_MISSING") {
+                    output.demandHealthy()
+                    output.frames.get() >= before + 3
+                }
+                demand(output.redPixels.get() >= redBefore + 3, "SURFACE_COLOR_NOT_RED")
+                demand(output.timestamp.get() > 0, "SURFACE_TIMESTAMP_MISSING")
+            } finally {
+                results.putString("ts7.media_phase", phase)
+                results.putString("ts7.media_frames", (output.frames.get() - before).coerceIn(0, 999).toString())
+                results.putString("ts7.media_red_frames", (output.redPixels.get() - redBefore).coerceIn(0, 999).toString())
+                results.putString("ts7.media_decoder_output", if (diagnostics.any { it == "first frame rendered" }) "YES" else "NO")
+                results.putString("ts7.media_decoder_errors", diagnostics.count { it.startsWith("decoder error") }.coerceIn(0, 999).toString())
             }
         }
         try {
@@ -283,6 +295,7 @@ class BaselineInstrumentation : Instrumentation() {
             awaitCheck("DECODER_NOT_RELEASED_ON_SURFACE_DETACH") { field(originalWorker, "decoder") == null }
             first.close()
             demand(!first.releasedSurfaceIsValid(), "OLD_SURFACE_STILL_VALID")
+            phase = "REATTACHED_SURFACE"
             val second = probe()
             sink.setSurface(110, second.surface)
             awaitCheck("DECODER_NOT_RECREATED_ON_NEW_SURFACE") { field(originalWorker, "decoder") != null }
@@ -290,6 +303,7 @@ class BaselineInstrumentation : Instrumentation() {
             sink.onScreenStreamActive(110, false)
             awaitWorkerClosed(originalWorker)
             demand(decoders(sink).isEmpty(), "DECODER_RETAINED_AFTER_STREAM_STOP")
+            phase = "RESTARTED_STREAM"
             val restartedWorker = configure(second)
             demand(restartedWorker !== originalWorker, "DECODER_WORKER_NOT_RESTARTED")
             render(second)
