@@ -4,7 +4,8 @@ import android.content.Context
 import java.net.Socket
 import java.net.InetSocketAddress
 import android.os.SystemClock
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
+import com.shilapi.xcertplay.PublicDiagnostics
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.util.concurrent.Executors
@@ -98,7 +99,7 @@ object BydStarterBridge {
         } catch (error: Exception) {
             close() // EOF makes the helper clear any guidance it owns.
             retryAfterMs = SystemClock.elapsedRealtime() + 3_000
-            notice("Waiting for ADB starter (${error.javaClass.simpleName}: ${error.message})")
+            notice("Waiting for ADB starter code=${PublicDiagnostics.failureCode(error)}")
         }
     }
 

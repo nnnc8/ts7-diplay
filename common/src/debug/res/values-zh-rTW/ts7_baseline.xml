@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_error_auth">AUTH_BLOCKED：尚未設定合法授權的外部認證來源。此公開 APK 不含配件認證身分。仍可選擇 iPhone、調整設定、檢查熱點；尚未證明 CarPlay 可用。</string>
+    <string name="setup_needs_attention">AUTH_BLOCKED</string>
+    <string name="home_public_preview">工程基準版 · </string>
+    <string name="an_independent_carplay_receiver_for_android_head_units_wir">TS7 DiPlay Full-Fork Baseline R1 保留原版接收器、Classic 介面，以及有線與無線影音流程。此 APK 不含配件認證身分，只支援合法授權的外部認證來源。\n\n工程基準版，尚未實車驗證 TS7 CarPlay。熱點建立成功不代表認證、iPhone 連線或 CarPlay 成功。</string>
+    <string name="hotspot_hint_local">由 Android 建立有密碼的本機熱點。只接受 AP 實測或系統回報的頻道；安全模式或頻道未知時會安全停止。</string>
+    <string name="ts7_hotspot_check">檢查本機熱點（15 秒）</string>
+    <string name="ts7_run_check">開始檢查</string>
+    <string name="ts7_hotspot_check_warning">此檢查可能中斷目前的 Wi-Fi，不會連接 iPhone。檢查結束會關閉暫時熱點，只儲存固定結果代碼。請停車後操作。</string>
+    <string name="ts7_hotspot_check_result">熱點已關閉。此結果不代表 CarPlay 或認證成功。</string>
+</resources>

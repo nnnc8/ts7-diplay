@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
+import com.shilapi.xcertplay.Ts7PublicProfile
 import com.shilapi.xcertplay.adb.AdbKeys
 import com.shilapi.xcertplay.adb.LocalAdb
 
@@ -18,6 +19,7 @@ object BydAdbAccess {
 
     /** Blocking: run off the main thread. [mayAsk] lets the car show its approval dialog for DiPlay's key. */
     fun check(context: Context, mayAsk: Boolean): Status {
+        if (!Ts7PublicProfile.BYD_INTEGRATION_ENABLED) return Status(State.ADB_OFF)
         LocalAdb(AdbKeys.load(context)).use { adb ->
             val state = when (adb.connect(mayAsk)) {
                 LocalAdb.Access.READY -> State.READY

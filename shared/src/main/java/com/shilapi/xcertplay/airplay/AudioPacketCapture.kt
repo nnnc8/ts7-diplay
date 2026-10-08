@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
+import com.shilapi.xcertplay.Ts7PublicProfile
 import java.io.BufferedOutputStream
 import java.io.Closeable
 import java.io.DataOutputStream
@@ -41,7 +42,7 @@ class AudioPacketCapture(
     val file: File
 
     init {
-        val captureDirectory = if (directory.isDirectory || directory.mkdirs()) {
+        val captureDirectory = if (Ts7PublicProfile.SENSITIVE_CAPTURES_ENABLED && (directory.isDirectory || directory.mkdirs())) {
             directory
         } else {
             null
@@ -82,7 +83,7 @@ class AudioPacketCapture(
         if (output == null || closed.get()) return
         synchronized(this) {
             if (closed.get() || packets >= maxPackets) return
-            val errorBytes = error?.message?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+            val errorBytes = if (error == null) ByteArray(0) else "AUDIO_PACKET_FAILED".toByteArray(Charsets.UTF_8)
             val recordBytes = 4L * 4 + 8 + wire.size + (rtp?.size ?: 0) + errorBytes.size
             if (bytesWritten + recordBytes > maxBytes) {
                 close()

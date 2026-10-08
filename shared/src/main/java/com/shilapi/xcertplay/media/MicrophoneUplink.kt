@@ -4,12 +4,11 @@ import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.MicrophoneCounters
 import com.shilapi.xcertplay.airplay.MicrophonePacketizer
-import com.shilapi.xcertplay.airplay.toHexString
 import java.io.Closeable
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -213,8 +212,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig) : Closeabl
             if (firstPacketLogged.compareAndSet(false, true)) {
                 Log.i(
                     TAG,
-                    "microphone first packet bytes=${packet.size} body=${body.size} " +
-                        "head=${packet.copyOf(minOf(packet.size, 16)).toHexString()} " +
+                    "microphone first packet bytes=${packet.size} bodyBytes=${body.size} " +
                         "port=${config.port}",
                 )
             }

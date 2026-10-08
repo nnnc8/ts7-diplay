@@ -1,0 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only; original neutral TS7 resource, not Apple's icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp" android:height="96dp" android:viewportWidth="96" android:viewportHeight="96">
+    <path android:fillColor="#15202C" android:pathData="M10,18L86,18L86,70L10,70Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#A6C8FF" android:strokeWidth="5"
+        android:pathData="M12,20L84,20L84,68L12,68Z M32,80L64,80 M48,68L48,80" />
+</vector>

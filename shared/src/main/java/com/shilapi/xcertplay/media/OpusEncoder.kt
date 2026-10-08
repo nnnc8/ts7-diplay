@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.media
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Build
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import java.io.Closeable
 
 /**
@@ -112,8 +112,7 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
                         if (outputPackets <= FIRST_PACKET_LOG_COUNT) {
                             Log.i(
                                 TAG,
-                                "Opus microphone packet=$outputPackets bytes=${bytes.size} " +
-                                    "head=${bytes.copyOf(minOf(bytes.size, 16)).toHexString()}",
+                                "Opus microphone packet=$outputPackets bytes=${bytes.size}",
                             )
                         }
                     }

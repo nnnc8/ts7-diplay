@@ -14,7 +14,7 @@ import android.view.WindowManager
 import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.os.Bundle
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import android.view.Display
 import android.view.Gravity
 import android.view.Surface

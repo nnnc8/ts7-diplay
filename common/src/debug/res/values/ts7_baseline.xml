@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_error_auth">AUTH_BLOCKED: No authorized external authentication provider is provisioned. This public APK contains no accessory identity. Phone selection, settings and the hotspot check remain available. This is not verified CarPlay.</string>
+    <string name="setup_needs_attention">AUTH_BLOCKED</string>
+    <string name="home_public_preview">ENGINEERING BASELINE · </string>
+    <string name="an_independent_carplay_receiver_for_android_head_units_wir">TS7 DiPlay Full-Fork Baseline R1 preserves the original receiver, Classic UI and wired/wireless media paths. No accessory identity is bundled. Only legally authorized external provisioning is supported.\n\nENGINEERING BASELINE / NOT YET VERIFIED AS FUNCTIONAL CARPLAY ON TS7. Hotspot readiness does not prove authentication, an iPhone session or CarPlay.</string>
+    <string name="hotspot_hint_local">Android creates a password-protected local hotspot. Only measured or framework-reported AP radio information is accepted; unknown security or channel fails safely.</string>
+    <string name="ts7_hotspot_check">Check local hotspot (15 seconds)</string>
+    <string name="ts7_run_check">Run check</string>
+    <string name="ts7_hotspot_check_warning">This radio-only check may interrupt the current Wi-Fi connection. It does not connect to an iPhone. The temporary hotspot closes after the check; only a fixed result code is saved. Run only while parked.</string>
+    <string name="ts7_hotspot_check_result">The hotspot is closed. This result is not CarPlay or authentication proof.</string>
+</resources>

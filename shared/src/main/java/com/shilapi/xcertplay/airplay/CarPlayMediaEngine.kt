@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.airplay
 
-import android.util.Log
+import com.shilapi.xcertplay.PublicDiagnostics
+import com.shilapi.xcertplay.PublicLog as Log
+import com.shilapi.xcertplay.Ts7PublicProfile
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import java.io.Closeable
 import java.io.File
@@ -69,7 +71,7 @@ class CarPlayMediaEngine(
     override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? {
         val key = outputKey(session, stream) ?: return null
         val streamKey = StreamKey(session, type)
-        Log.i(TAG, "airplay screen key connectionID=${unsignedPlistDecimal(stream["streamConnectionID"])}")
+        Log.i(TAG, "airplay screen stream starting type=$type")
         val screen = ScreenStream(key, session::logDebug)
         sink.setVideoDiagnosticHandler(type) {
             if (it == "first frame rendered") session.videoFrameRendered()
@@ -95,7 +97,7 @@ class CarPlayMediaEngine(
                 override fun onClosed(cause: Throwable?) {
                     Log.w(
                         TAG,
-                        "screen stream ended type=$type reason=${cause?.message ?: "peer EOF"}",
+                        "screen stream ended type=$type code=${cause?.let(PublicDiagnostics::failureCode) ?: "PEER_EOF"}",
                     )
                     if (streams.remove(streamKey, screen)) {
                         sink.onScreenStreamActive(type, false)
@@ -136,7 +138,8 @@ class CarPlayMediaEngine(
         val microphone = microphoneConfig(session, type, stream, format)
         if (microphone != null) pendingMicrophone[type] = microphone
 
-        val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
+        val capture = audioCaptureDirectory?.takeIf { Ts7PublicProfile.SENSITIVE_CAPTURES_ENABLED }
+            ?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[type] = capture
         val audio = AudioStream(key, type, session::logDebug)
         val (dataPort, controlPort) = audio.listen(
@@ -214,7 +217,7 @@ class CarPlayMediaEngine(
                         override fun onClosed(cause: Throwable?) {
                             Log.w(
                                 TAG,
-                                "iAP tunnel ended reason=${cause?.message ?: "peer EOF"}",
+                                "iAP tunnel ended code=${cause?.let(PublicDiagnostics::failureCode) ?: "PEER_EOF"}",
                             )
                             session.close()
                         }

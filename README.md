@@ -1,5 +1,13 @@
 ﻿# DiPlay Legacy Android
 
+> **TS7 Fork notice:** This compatibility branch preserves the full upstream source
+> and history. Read [TS7 Full-Fork Baseline R1](docs/TS7_FULL_FORK.md) and
+> [TS7 release notices](docs/TS7_RELEASE_NOTICES.md) first. The TS7 public APK
+> contains no accessory identity; missing authorized external provisioning is
+> `AUTH_BLOCKED`. It is an engineering baseline, not verified functional CarPlay.
+> Historical upstream download, identity and BYD claims below describe upstream
+> releases, not the TS7 package. The exact upstream baseline branch is unchanged.
+
 > This project is modified from [shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay), with a focus on compatibility with older Android versions and legacy Android-based head units.
 
 > Upstream project: https://github.com/shihabal3amri/DiPlay
@@ -59,4 +67,3 @@ This repository starts with a clean public source snapshot. Local research, test
 ## Local release packaging
 
 The release APK intentionally contains the experimental accessory identity. The Git repository and source archive exclude all accessory and Android signing keys; tests generate synthetic identities at runtime. Source/CI builds omit runtime identity assets by default. Local release builds explicitly select an external asset directory. Publishing the APK makes its bundled identity extractable; building locally does not preserve that identity's confidentiality.
-
