@@ -124,7 +124,49 @@ class BaselineChecksTest(unittest.TestCase):
             "decoder_output": "YES", "decoder_errors": None, "output_formats": None,
             "backlog_recoveries": None, "invalid_units": None, "stalled_recoveries": None,
             "worker_alive": "NOT_REPORTED", "input_attempted": "NOT_REPORTED",
+            "input_queued": "NOT_REPORTED", "queued_jobs": None,
+            "worker_state": "NOT_REPORTED", "worker_phase": "NOT_REPORTED",
+            "codec_kind": "NOT_REPORTED",
+            "control_status": "NOT_REPORTED", "control_input_queued": None,
+            "control_output_released": None, "control_frames": None, "control_red_frames": None,
         })
+
+    def test_worker_probe_filters_unknown_stack_details(self):
+        rows = (b"INSTRUMENTATION_RESULT: ts7.media_input_queued=YES\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_queued_jobs=11\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_worker_state=TIMED_WAITING\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_worker_phase=WAITING_FOR_VIDEO_JOB\n")
+        with self.assertRaises(baseline.InstrumentationFailure) as result:
+            baseline.parse_instrumentation(rows + self.output(failed="media_surface_lifecycle"), baseline.UPSTREAM)
+        probe = result.exception.details["media_probe"]
+        self.assertEqual(probe["input_queued"], "YES")
+        self.assertEqual(probe["queued_jobs"], 11)
+        self.assertEqual(probe["worker_state"], "TIMED_WAITING")
+        self.assertEqual(probe["worker_phase"], "WAITING_FOR_VIDEO_JOB")
+        rows = rows.replace(b"WAITING_FOR_VIDEO_JOB", b"PRIVATE_STACK_DETAIL").replace(b"TIMED_WAITING", b"PRIVATE_THREAD_DETAIL")
+        with self.assertRaises(baseline.InstrumentationFailure) as result:
+            baseline.parse_instrumentation(rows + self.output(failed="media_surface_lifecycle"), baseline.UPSTREAM)
+        self.assertEqual(result.exception.details["media_probe"]["worker_phase"], "NOT_REPORTED")
+        self.assertEqual(result.exception.details["media_probe"]["worker_state"], "NOT_REPORTED")
+        self.assertNotIn("PRIVATE_", str(result.exception.details))
+
+    def test_platform_control_cannot_forgive_original_gate(self):
+        rows = (b"INSTRUMENTATION_RESULT: ts7.media_control_status=PASS\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_control_input_queued=12\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_control_output_released=12\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_control_frames=12\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_control_red_frames=12\n")
+        with self.assertRaises(baseline.InstrumentationFailure) as result:
+            baseline.parse_instrumentation(rows + self.output(failed="media_surface_lifecycle"), baseline.UPSTREAM)
+        self.assertEqual(result.exception.details["checks"]["media_surface_lifecycle"], "FAIL")
+        self.assertEqual(result.exception.details["media_probe"]["control_status"], "PASS")
+        self.assertEqual(result.exception.details["media_probe"]["control_input_queued"], 12)
+        rows = rows.replace(b"control_status=PASS", b"control_status=PRIVATE_ERROR").replace(b"control_frames=12", b"control_frames=1234")
+        with self.assertRaises(baseline.InstrumentationFailure) as result:
+            baseline.parse_instrumentation(rows + self.output(failed="media_surface_lifecycle"), baseline.UPSTREAM)
+        self.assertEqual(result.exception.details["media_probe"]["control_status"], "NOT_REPORTED")
+        self.assertIsNone(result.exception.details["media_probe"]["control_frames"])
+        self.assertNotIn("PRIVATE_ERROR", str(result.exception.details))
 
     def test_private_header_literal_is_not_a_credential(self):
         literal = b'rb"-----BEGIN PRIVATE KEY-----\\s+[A-Za-z0-9+/=]{40,}"'

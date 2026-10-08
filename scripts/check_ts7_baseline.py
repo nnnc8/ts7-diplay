@@ -422,12 +422,28 @@ def parse_instrumentation(raw, source_sha):
         "phase": phase if phase in {"FIRST_SURFACE", "REATTACHED_SURFACE", "RESTARTED_STREAM"} else "NOT_REPORTED",
         "decoder_output": results.get("ts7.media_decoder_output") if results.get("ts7.media_decoder_output") in {"YES", "NO"} else "NOT_REPORTED",
     }
-    for key in ("frames", "red_frames", "decoder_errors", "output_formats", "backlog_recoveries", "invalid_units", "stalled_recoveries"):
+    for key in ("frames", "red_frames", "decoder_errors", "output_formats", "backlog_recoveries", "invalid_units", "stalled_recoveries", "queued_jobs",
+                "control_input_queued", "control_output_released", "control_frames", "control_red_frames"):
         value = results.get(f"ts7.media_{key}", "")
         details["media_probe"][key] = int(value) if re.fullmatch(r"[0-9]{1,3}", value) else None
-    for key in ("worker_alive", "input_attempted"):
+    for key in ("worker_alive", "input_attempted", "input_queued"):
         value = results.get(f"ts7.media_{key}")
         details["media_probe"][key] = value if value in {"YES", "NO"} else "NOT_REPORTED"
+    for key, allowed in {
+        "control_status": {"PASS", "API27_REQUIRED", "FIXTURE_INVALID", "SURFACE_INIT_FAILED",
+                           "CODEC_CREATE_FAILED", "CODEC_CONFIGURE_FAILED", "CODEC_START_FAILED",
+                           "OUTPUT_FAILED", "INPUT_FAILED", "INPUT_TIMEOUT", "INPUT_BUFFER_INVALID",
+                           "OUTPUT_INSUFFICIENT", "FRAMES_INSUFFICIENT", "RED_FRAMES_INSUFFICIENT",
+                           "TIMESTAMP_MISSING", "SURFACE_UNHEALTHY", "CLEANUP_FAILED", "INTERRUPTED"},
+        "codec_kind": {"EMULATOR_HOST_CODEC", "ANDROID_SOFTWARE_CODEC", "OTHER_CODEC"},
+        "worker_state": {"NEW", "RUNNABLE", "BLOCKED", "WAITING", "TIMED_WAITING", "TERMINATED"},
+        "worker_phase": {"CODEC_INPUT_DEQUEUE", "CODEC_INPUT_QUEUE", "CODEC_INPUT_BUFFER",
+                         "CODEC_OUTPUT_DEQUEUE", "CODEC_OUTPUT_RELEASE", "INPUT_LOG_FORMAT",
+                         "WAITING_FOR_VIDEO_JOB", "VIDEO_FEED", "VIDEO_CONFIGURE", "VIDEO_RELEASE",
+                         "UNKNOWN_CALL_SITE"},
+    }.items():
+        value = results.get(f"ts7.media_{key}")
+        details["media_probe"][key] = value if value in allowed else "NOT_REPORTED"
 
     def valid(condition, code):
         if not condition:

@@ -36,6 +36,7 @@ import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 internal class BaselineFailure(val code: String) : AssertionError(code)
@@ -257,6 +258,7 @@ class BaselineInstrumentation : Instrumentation() {
         val diagnostics = CopyOnWriteArrayList<String>()
         val states = CopyOnWriteArrayList<Boolean>()
         var phase = "FIRST_SURFACE"
+        var originalFailed = false
         sink.setScreenStreamActiveChangedListener { type, active -> if (type == 110) states.add(active) }
         fun probe() = SurfaceFrameProbe().also { probes.add(it) }
         fun configure(output: SurfaceFrameProbe): Any {
@@ -290,9 +292,26 @@ class BaselineInstrumentation : Instrumentation() {
                 results.putString("ts7.media_red_frames", (output.redPixels.get() - redBefore).coerceIn(0, 999).toString())
                 results.putString("ts7.media_decoder_output", if (diagnostics.any { it == "first frame rendered" }) "YES" else "NO")
                 results.putString("ts7.media_decoder_errors", diagnostics.count { it.startsWith("decoder error") }.coerceIn(0, 999).toString())
+                val codecName = diagnostics.firstOrNull { it.startsWith("decoder=") }
+                    ?.substringAfter("decoder=")?.substringBefore(' ').orEmpty()
+                results.putString("ts7.media_codec_kind", when {
+                    codecName.startsWith("OMX.android.goldfish.") || codecName.startsWith("OMX.google.goldfish.") || codecName.startsWith("c2.goldfish.") -> "EMULATOR_HOST_CODEC"
+                    codecName.startsWith("OMX.google.") -> "ANDROID_SOFTWARE_CODEC"
+                    else -> "OTHER_CODEC"
+                })
                 val worker = decoders(sink)[110]
                 results.putString("ts7.media_worker_alive", if (worker != null && (field(worker, "thread") as Thread).isAlive) "YES" else "NO")
                 results.putString("ts7.media_input_attempted", if (worker != null && field(worker, "submittedFrameLogged") == true) "YES" else "NO")
+                if (worker != null) {
+                    // onQueued is reached only after the real queueInputBuffer call returns.
+                    val reference = field(worker, "referenceChain")!!
+                    results.putString("ts7.media_input_queued", if (field(reference, "needsKeyFrame") == false) "YES" else "NO")
+                    val queue = field(field(worker, "queue")!!, "jobs") as LinkedBlockingQueue<*>
+                    results.putString("ts7.media_queued_jobs", queue.size.coerceIn(0, 999).toString())
+                    val thread = field(worker, "thread") as Thread
+                    results.putString("ts7.media_worker_state", thread.state.name)
+                    results.putString("ts7.media_worker_phase", workerPhase(thread))
+                }
                 results.putString("ts7.media_output_formats", diagnostics.count { it.startsWith("output format requested=") }.coerceIn(0, 999).toString())
                 results.putString("ts7.media_backlog_recoveries", diagnostics.count { it == "recovery: video backlog exceeded 250 ms; waiting for keyframe" }.coerceIn(0, 999).toString())
                 results.putString("ts7.media_invalid_units", diagnostics.count { it == "recovery: invalid video access unit; waiting for keyframe" }.coerceIn(0, 999).toString())
@@ -327,16 +346,50 @@ class BaselineInstrumentation : Instrumentation() {
             sink.close()
             awaitWorkerClosed(restartedWorker)
             demand(decoders(sink).isEmpty() && states.lastOrNull() == false, "SINK_CLOSE_INCOMPLETE")
+        } catch (failure: Throwable) {
+            originalFailed = true
+            throw failure
         } finally {
-            sink.close()
-            workers.forEach(::awaitWorkerClosed)
-            probes.forEach { it.close() }
+            val cleanup = runCatching {
+                sink.close()
+                workers.forEach(::awaitWorkerClosed)
+                probes.forEach { it.close() }
+            }
+            if (originalFailed && cleanup.isSuccess) {
+                // A successful platform control must never forgive the original failing gate.
+                val control = PlatformCodecProbe.run(fixture)
+                results.putString("ts7.media_control_status", control.status)
+                results.putString("ts7.media_control_input_queued", control.inputQueued.coerceIn(0, 999).toString())
+                results.putString("ts7.media_control_output_released", control.outputReleased.coerceIn(0, 999).toString())
+                results.putString("ts7.media_control_frames", control.frames.coerceIn(0, 999).toString())
+                results.putString("ts7.media_control_red_frames", control.redFrames.coerceIn(0, 999).toString())
+            }
+            cleanup.getOrThrow()
         }
     }
 
     private fun awaitWorkerClosed(worker: Any) {
         awaitCheck("DECODER_CLEANUP_TIMEOUT") {
             !(field(worker, "thread") as Thread).isAlive && field(worker, "decoder") == null
+        }
+    }
+
+    private fun workerPhase(thread: Thread): String {
+        // Classify only known call sites; never emit stack contents, paths or line numbers.
+        val stack = thread.stackTrace
+        val codec = stack.firstOrNull { it.className == "android.media.MediaCodec" }?.methodName.orEmpty()
+        return when {
+            codec.contains("dequeueInputBuffer") -> "CODEC_INPUT_DEQUEUE"
+            codec.contains("queueInputBuffer") -> "CODEC_INPUT_QUEUE"
+            codec.contains("getInputBuffer") || codec.contains("getBuffer") -> "CODEC_INPUT_BUFFER"
+            codec.contains("dequeueOutputBuffer") -> "CODEC_OUTPUT_DEQUEUE"
+            codec.contains("releaseOutputBuffer") -> "CODEC_OUTPUT_RELEASE"
+            stack.any { it.className == "java.util.Formatter" } -> "INPUT_LOG_FORMAT"
+            stack.any { it.className == "com.shilapi.xcertplay.media.VideoDecodeQueue" && it.methodName == "poll" } -> "WAITING_FOR_VIDEO_JOB"
+            stack.any { it.className == "com.shilapi.xcertplay.media.VideoDecoder" && it.methodName == "feed" } -> "VIDEO_FEED"
+            stack.any { it.className == "com.shilapi.xcertplay.media.VideoDecoder" && it.methodName == "configureDecoder" } -> "VIDEO_CONFIGURE"
+            stack.any { it.className == "com.shilapi.xcertplay.media.VideoDecoder" && it.methodName == "releaseDecoder" } -> "VIDEO_RELEASE"
+            else -> "UNKNOWN_CALL_SITE"
         }
     }
 
