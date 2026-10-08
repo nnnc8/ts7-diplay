@@ -27,6 +27,8 @@ class BaselineChecksTest(unittest.TestCase):
         self.assertEqual(len(fixture), 1320)
         self.assertEqual(baseline.sha(fixture), baseline.FIXTURE_SHA)
         self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x09"), 12)
+        self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x67"), 12)
+        self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x68"), 12)
         self.assertEqual(fixture.count(b"\x00\x00\x01\x65"), 12)
 
     def test_elf_rejects_a_renamed_x86_library(self):

@@ -25,6 +25,11 @@ their presence. Synthetic rendering establishes only the emulator MediaCodec /
 Surface lifecycle, never phone authentication, protocol acceptance or TS7 silicon
 performance. Both native ELF libraries are loaded without calling their exports.
 
+The loader preserves each encoder-produced access unit (AUD, SPS, PPS and IDR)
+when converting it to length-prefixed input. It does not drop the encoded frame
+delimiters and in-band parameter sets. The original decoder conversion is checked
+on the actual emulator; complete frame/pixel/lifecycle assertions still apply.
+
 Parent integration: the mobile defaultConfig runner must be
 `com.shilapi.xcertplay.baseline.BaselineInstrumentation`, with
 `testBuildType = "baseline"`. No additional dependency is needed. Gradle checks

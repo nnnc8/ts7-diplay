@@ -21,10 +21,20 @@ internal data class SyntheticAvc(val config: ByteArray, val frames: List<ByteArr
                 write(byteArrayOf(1, sps[1], sps[2], sps[3], 0xff.toByte(), 0xe1.toByte()))
                 writeSize(sps.size); write(sps); write(1); writeSize(pps.size); write(pps)
             }.toByteArray()
-            val frames = units.filter { it[0].toInt() and 31 == 5 }.map { unit ->
+            // Preserve encoder AU boundaries and in-band headers, not isolated VCL slices.
+            val accessUnits = mutableListOf<MutableList<ByteArray>>()
+            for (unit in units) {
+                if (unit[0].toInt() and 31 == 9) accessUnits.add(mutableListOf())
+                demand(accessUnits.isNotEmpty(), "FIXTURE_ACCESS_UNIT_DELIMITER_MISSING")
+                accessUnits.last().add(unit)
+            }
+            val frames = accessUnits.map { accessUnit ->
+                demand(accessUnit.map { it[0].toInt() and 31 } == listOf(9, 7, 8, 5), "FIXTURE_ACCESS_UNIT_STRUCTURE_INVALID")
                 ByteArrayOutputStream().apply {
-                    for (shift in listOf(24, 16, 8, 0)) write(unit.size ushr shift and 255)
-                    write(unit)
+                    for (unit in accessUnit) {
+                        for (shift in listOf(24, 16, 8, 0)) write(unit.size ushr shift and 255)
+                        write(unit)
+                    }
                 }.toByteArray()
             }
             demand(frames.size == 12, "FIXTURE_FRAME_COUNT_MISMATCH")
