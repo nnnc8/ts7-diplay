@@ -21,7 +21,7 @@ internal object PlatformCodecProbe {
         val redFrames: Int,
     )
 
-    fun run(fixture: SyntheticAvc): Result {
+    fun run(fixture: SyntheticAvc, renderSurface: Boolean = true): Result {
         var owner: SurfaceFrameProbe? = null
         var codec: MediaCodec? = null
         var started = false
@@ -49,8 +49,8 @@ internal object PlatformCodecProbe {
             }
 
             stage = "SURFACE_INIT_FAILED"
-            val output = SurfaceFrameProbe().also { owner = it }
-            requireHealthy(output)
+            val output = if (renderSurface) SurfaceFrameProbe().also { owner = it } else null
+            output?.let(::requireHealthy)
             stage = "CODEC_CREATE_FAILED"
             val decoder = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).also { codec = it }
             stage = "CODEC_CONFIGURE_FAILED"
@@ -60,7 +60,7 @@ internal object PlatformCodecProbe {
                 setByteBuffer("csd-0", ByteBuffer.wrap(START_CODE + sps))
                 setByteBuffer("csd-1", ByteBuffer.wrap(START_CODE + pps))
             }
-            decoder.configure(format, output.surface, null, 0)
+            decoder.configure(format, output?.surface, null, 0)
             stage = "CODEC_START_FAILED"
             decoder.start()
             started = true
@@ -69,12 +69,18 @@ internal object PlatformCodecProbe {
             @Suppress("DEPRECATION")
             fun drainOne() {
                 checkInterrupted()
-                requireHealthy(output)
+                output?.let(::requireHealthy)
                 stage = "OUTPUT_FAILED"
                 val index = decoder.dequeueOutputBuffer(info, 0)
                 when {
                     index >= 0 -> {
-                        decoder.releaseOutputBuffer(index, true)
+                        if (!renderSurface) {
+                            val buffer = decoder.getOutputBuffer(index) ?: fail("OUTPUT_BUFFER_INVALID")
+                            if (info.size <= 0 || info.offset < 0 || info.offset.toLong() + info.size > buffer.capacity()) {
+                                fail("OUTPUT_BUFFER_INVALID")
+                            }
+                        }
+                        decoder.releaseOutputBuffer(index, renderSurface)
                         outputReleased++
                     }
                     index == MediaCodec.INFO_TRY_AGAIN_LATER ||
@@ -112,13 +118,15 @@ internal object PlatformCodecProbe {
             val finalDeadline = SystemClock.elapsedRealtime() + FINAL_WAIT_MS
             while (SystemClock.elapsedRealtime() < finalDeadline) {
                 drainOne()
-                if (outputReleased >= REQUIRED_FRAMES && output.frames.get() >= REQUIRED_FRAMES &&
-                    output.redPixels.get() >= REQUIRED_FRAMES && output.timestamp.get() > 0) break
+                if (outputReleased >= REQUIRED_FRAMES && (output == null ||
+                    (output.frames.get() >= REQUIRED_FRAMES && output.redPixels.get() >= REQUIRED_FRAMES &&
+                        output.timestamp.get() > 0))) break
                 Thread.sleep(POLL_INTERVAL_MS)
             }
-            requireHealthy(output)
+            output?.let(::requireHealthy)
             status = when {
                 outputReleased < REQUIRED_FRAMES -> "OUTPUT_INSUFFICIENT"
+                output == null -> "BYTEBUFFER_OUTPUT_PASS"
                 output.frames.get() < REQUIRED_FRAMES -> "FRAMES_INSUFFICIENT"
                 output.redPixels.get() < REQUIRED_FRAMES -> "RED_FRAMES_INSUFFICIENT"
                 output.timestamp.get() <= 0 -> "TIMESTAMP_MISSING"
@@ -157,7 +165,7 @@ internal object PlatformCodecProbe {
                 owner?.demandHealthy()
                 if (owner?.releasedSurfaceIsValid() == true) fail("CLEANUP_FAILED")
             }
-            if (cleanupFailed && status == "PASS") status = "CLEANUP_FAILED"
+            if (cleanupFailed && status in setOf("PASS", "BYTEBUFFER_OUTPUT_PASS")) status = "CLEANUP_FAILED"
             if (interrupted) Thread.currentThread().interrupt()
         }
 

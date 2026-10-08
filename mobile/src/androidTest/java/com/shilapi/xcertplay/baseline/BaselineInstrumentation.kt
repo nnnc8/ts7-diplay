@@ -363,6 +363,12 @@ class BaselineInstrumentation : Instrumentation() {
                 results.putString("ts7.media_control_output_released", control.outputReleased.coerceIn(0, 999).toString())
                 results.putString("ts7.media_control_frames", control.frames.coerceIn(0, 999).toString())
                 results.putString("ts7.media_control_red_frames", control.redFrames.coerceIn(0, 999).toString())
+                if (control.status != "PASS") {
+                    val buffers = PlatformCodecProbe.run(fixture, renderSurface = false)
+                    results.putString("ts7.media_buffer_control_status", buffers.status)
+                    results.putString("ts7.media_buffer_input_queued", buffers.inputQueued.coerceIn(0, 999).toString())
+                    results.putString("ts7.media_buffer_output_released", buffers.outputReleased.coerceIn(0, 999).toString())
+                }
             }
             cleanup.getOrThrow()
         }

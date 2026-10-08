@@ -29,6 +29,13 @@ CHECKS = (
     "choose_phone_dialog", "auth_blocked_no_session", "activity_stop_restart",
     "native_library_load", "media_surface_lifecycle",
 )
+CONTROL_STATUSES = {
+    "PASS", "BYTEBUFFER_OUTPUT_PASS", "API27_REQUIRED", "FIXTURE_INVALID",
+    "SURFACE_INIT_FAILED", "CODEC_CREATE_FAILED", "CODEC_CONFIGURE_FAILED", "CODEC_START_FAILED",
+    "OUTPUT_FAILED", "OUTPUT_BUFFER_INVALID", "INPUT_FAILED", "INPUT_TIMEOUT", "INPUT_BUFFER_INVALID",
+    "OUTPUT_INSUFFICIENT", "FRAMES_INSUFFICIENT", "RED_FRAMES_INSUFFICIENT", "TIMESTAMP_MISSING",
+    "SURFACE_UNHEALTHY", "CLEANUP_FAILED", "INTERRUPTED",
+}
 LIBRARIES = ("libxcertplay_i2c.so", "liblocal_hotspot_radio.so")
 CREDENTIAL_SUFFIXES = {
     ".pk8", ".p7b", ".p7c", ".p8", ".pem", ".key", ".p12", ".pfx",
@@ -423,18 +430,16 @@ def parse_instrumentation(raw, source_sha):
         "decoder_output": results.get("ts7.media_decoder_output") if results.get("ts7.media_decoder_output") in {"YES", "NO"} else "NOT_REPORTED",
     }
     for key in ("frames", "red_frames", "decoder_errors", "output_formats", "backlog_recoveries", "invalid_units", "stalled_recoveries", "queued_jobs",
-                "control_input_queued", "control_output_released", "control_frames", "control_red_frames"):
+                "control_input_queued", "control_output_released", "control_frames", "control_red_frames",
+                "buffer_input_queued", "buffer_output_released"):
         value = results.get(f"ts7.media_{key}", "")
         details["media_probe"][key] = int(value) if re.fullmatch(r"[0-9]{1,3}", value) else None
     for key in ("worker_alive", "input_attempted", "input_queued"):
         value = results.get(f"ts7.media_{key}")
         details["media_probe"][key] = value if value in {"YES", "NO"} else "NOT_REPORTED"
     for key, allowed in {
-        "control_status": {"PASS", "API27_REQUIRED", "FIXTURE_INVALID", "SURFACE_INIT_FAILED",
-                           "CODEC_CREATE_FAILED", "CODEC_CONFIGURE_FAILED", "CODEC_START_FAILED",
-                           "OUTPUT_FAILED", "INPUT_FAILED", "INPUT_TIMEOUT", "INPUT_BUFFER_INVALID",
-                           "OUTPUT_INSUFFICIENT", "FRAMES_INSUFFICIENT", "RED_FRAMES_INSUFFICIENT",
-                           "TIMESTAMP_MISSING", "SURFACE_UNHEALTHY", "CLEANUP_FAILED", "INTERRUPTED"},
+        "control_status": CONTROL_STATUSES - {"BYTEBUFFER_OUTPUT_PASS"},
+        "buffer_control_status": CONTROL_STATUSES - {"PASS"},
         "codec_kind": {"EMULATOR_HOST_CODEC", "ANDROID_SOFTWARE_CODEC", "OTHER_CODEC"},
         "worker_state": {"NEW", "RUNNABLE", "BLOCKED", "WAITING", "TIMED_WAITING", "TERMINATED"},
         "worker_phase": {"CODEC_INPUT_DEQUEUE", "CODEC_INPUT_QUEUE", "CODEC_INPUT_BUFFER",
@@ -457,6 +462,28 @@ def parse_instrumentation(raw, source_sha):
     return {check: "PASS" for check in CHECKS}
 
 
+def native_codec_fault_counts(raw):
+    # Only the isolated API27 emulator is read. Native log contents never leave memory.
+    messages = []
+    for line in raw.decode(errors="replace").splitlines():
+        match = re.fullmatch(r"[EWF]/(SoftAVC|SoftAVCDec|ACodec|MediaCodec|SoftwareRenderer)\s*\(\s*[0-9]+\):\s*(.*)", line)
+        if match:
+            messages.append((match[1], match[2]))
+    patterns = {
+        "unsupported_resolution": (r"SoftAVC(?:Dec)?", r"Unsupported resolution :"),
+        "decoder_allocation_failure": (r"SoftAVC(?:Dec)?", r"Allocation failure in decoder"),
+        "decoder_argument_failure": (r"SoftAVC(?:Dec)?", r"Decoder arg setup failed"),
+        "codec_signal_error": (r"ACodec", r"signalError\(omxError "),
+        "codec_buffer_size_failure": (r"ACodec", r"failed to set min buffer size to "),
+        "codec_buffer_ownership_failure": (r"ACodec", r"Wrong ownership in (?:EBD|IBF|FBD):"),
+        "native_window_failure": (r"(?:ACodec|SoftwareRenderer)",
+                                  r"(?:native_window_set_buffer_count failed:|dequeueBuffer failed:|Surface::(?:dequeueBuffer|queueBuffer|set_buffers_timestamp) returned error)"),
+    }
+    return {name: min(999, sum(bool(re.fullmatch(tag_pattern, tag) and re.match(message_pattern, message))
+                              for tag, message in messages))
+            for name, (tag_pattern, message_pattern) in patterns.items()}
+
+
 def emulator(repo, path, test_apk, serial, source_sha):
     require(serial.startswith("emulator-"), "EMULATOR_SERIAL_REQUIRED")
     require(path.is_file() and test_apk.is_file(), "EMULATOR_APK_MISSING")
@@ -473,10 +500,28 @@ def emulator(repo, path, test_apk, serial, source_sha):
         require(b"Success" in device("install", "-r", "-t", str(apk)), "EMULATOR_INSTALL_FAILED")
     # This operation is confined to the isolated emulator after the three identity checks.
     require(device("shell", "pm", "clear", APPLICATION).strip() == b"Success", "EMULATOR_RESET_FAILED")
+    device("logcat", "-c")
     raw = device("shell", "am", "instrument", "-w", "-r", "-e", "source_sha", source_sha,
                  f"{APPLICATION}.test/{RUNNER}", timeout=240)
-    results = parse_instrumentation(raw, source_sha)
-    device("shell", "am", "force-stop", APPLICATION)
+    original_failure = None
+    try:
+        results = parse_instrumentation(raw, source_sha)
+    except InstrumentationFailure as error:
+        original_failure = error
+        try:
+            logs = device("logcat", "-d", "-v", "brief", "-s", "SoftAVC:E", "SoftAVCDec:E",
+                          "ACodec:E", "MediaCodec:E", "SoftwareRenderer:W")
+            error.details["native_codec_fault_counts"] = native_codec_fault_counts(logs)
+        except CheckFailure:
+            error.details["native_codec_fault_counts"] = {"status": "NOT_AVAILABLE"}
+        raise
+    finally:
+        try:
+            device("shell", "am", "force-stop", APPLICATION)
+        except CheckFailure:
+            if original_failure is None:
+                raise
+            original_failure.details["emulator_cleanup"] = "FORCE_STOP_FAILED"
     return {"status": "EMULATOR_PASS", "api": 27, "abi": "x86_64", "checks": results,
             "apk_sha256": sha(path.read_bytes()), "test_apk_sha256": sha(test_apk.read_bytes()),
             "real_ts7": "NOT_RUN", "real_iphone": "NOT_RUN", "phone_session_proven": False}

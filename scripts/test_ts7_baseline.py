@@ -5,6 +5,7 @@ from pathlib import Path
 import struct
 import sys
 import unittest
+from unittest.mock import Mock, patch
 
 sys.dont_write_bytecode = True
 import check_ts7_baseline as baseline
@@ -129,6 +130,7 @@ class BaselineChecksTest(unittest.TestCase):
             "codec_kind": "NOT_REPORTED",
             "control_status": "NOT_REPORTED", "control_input_queued": None,
             "control_output_released": None, "control_frames": None, "control_red_frames": None,
+            "buffer_control_status": "NOT_REPORTED", "buffer_input_queued": None, "buffer_output_released": None,
         })
 
     def test_worker_probe_filters_unknown_stack_details(self):
@@ -167,6 +169,53 @@ class BaselineChecksTest(unittest.TestCase):
         self.assertEqual(result.exception.details["media_probe"]["control_status"], "NOT_REPORTED")
         self.assertIsNone(result.exception.details["media_probe"]["control_frames"])
         self.assertNotIn("PRIVATE_ERROR", str(result.exception.details))
+
+    def test_bytebuffer_control_is_not_surface_or_phone_proof(self):
+        rows = (b"INSTRUMENTATION_RESULT: ts7.media_buffer_control_status=BYTEBUFFER_OUTPUT_PASS\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_buffer_input_queued=12\n"
+                b"INSTRUMENTATION_RESULT: ts7.media_buffer_output_released=12\n")
+        with self.assertRaises(baseline.InstrumentationFailure) as result:
+            baseline.parse_instrumentation(rows + self.output(failed="media_surface_lifecycle"), baseline.UPSTREAM)
+        self.assertEqual(result.exception.details["checks"]["media_surface_lifecycle"], "FAIL")
+        self.assertEqual(result.exception.details["media_probe"]["buffer_control_status"], "BYTEBUFFER_OUTPUT_PASS")
+        self.assertEqual(result.exception.details["media_probe"]["buffer_output_released"], 12)
+        self.assertFalse(result.exception.details["phone_session_proven"])
+
+    def test_native_codec_fault_counts_never_return_log_contents(self):
+        raw = (b"E/ACodec  ( 123): signalError(omxError 0xdead, internalError -1) PRIVATE_DETAIL\n"
+               b"W/SoftwareRenderer( 124): Surface::dequeueBuffer returned error -12 PRIVATE_DETAIL\n"
+               b"E/SoftAVC ( 125): Allocation failure in decoder PRIVATE_DETAIL\n"
+               b"E/UNTRUSTED( 126): signalError(omxError PRIVATE_DETAIL\n"
+               b"I/ACodec( 127): signalError(omxError PRIVATE_DETAIL\n")
+        counts = baseline.native_codec_fault_counts(raw)
+        self.assertEqual(counts["codec_signal_error"], 1)
+        self.assertEqual(counts["native_window_failure"], 1)
+        self.assertEqual(counts["decoder_allocation_failure"], 1)
+        self.assertEqual(sum(counts.values()), 3)
+        self.assertTrue(all(isinstance(value, int) for value in counts.values()))
+        self.assertNotIn("PRIVATE_DETAIL", str(counts))
+
+    def test_cleanup_fault_does_not_hide_original_instrumentation_failure(self):
+        path = Mock()
+        path.is_file.return_value = True
+        def device_response(args, **kwargs):
+            if "force-stop" in args:
+                raise baseline.CheckFailure("COMMAND_FAILED")
+            if "instrument" in args:
+                return self.output(failed="media_surface_lifecycle")
+            if "logcat" in args:
+                return b"E/ACodec( 123): signalError(omxError 0xdead, internalError -1) PRIVATE_DETAIL\n"
+            if args[-1] == "ro.build.version.sdk": return b"27"
+            if args[-1] == "ro.product.cpu.abi": return b"x86_64"
+            if args[-1] == "ro.kernel.qemu": return b"1"
+            return b"Success"
+        with patch.object(baseline.shutil, "which", return_value="adb"), patch.object(baseline, "command", side_effect=device_response):
+            with self.assertRaises(baseline.InstrumentationFailure) as result:
+                baseline.emulator(None, path, path, "emulator-5554", baseline.UPSTREAM)
+        self.assertEqual(result.exception.details["failure_codes"]["media_surface_lifecycle"], "SURFACE_CALLBACK_FAILED")
+        self.assertEqual(result.exception.details["native_codec_fault_counts"]["codec_signal_error"], 1)
+        self.assertEqual(result.exception.details["emulator_cleanup"], "FORCE_STOP_FAILED")
+        self.assertNotIn("PRIVATE_DETAIL", str(result.exception.details))
 
     def test_private_header_literal_is_not_a_credential(self):
         literal = b'rb"-----BEGIN PRIVATE KEY-----\\s+[A-Za-z0-9+/=]{40,}"'
