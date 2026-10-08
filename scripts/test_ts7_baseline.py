@@ -119,7 +119,9 @@ class BaselineChecksTest(unittest.TestCase):
             baseline.parse_instrumentation(raw, baseline.UPSTREAM)
         self.assertEqual(result.exception.details["media_probe"], {
             "phase": "FIRST_SURFACE", "frames": 12, "red_frames": 0,
-            "decoder_output": "YES", "decoder_errors": None,
+            "decoder_output": "YES", "decoder_errors": None, "output_formats": None,
+            "backlog_recoveries": None, "invalid_units": None, "stalled_recoveries": None,
+            "worker_alive": "NOT_REPORTED", "input_attempted": "NOT_REPORTED",
         })
 
     def test_private_header_literal_is_not_a_credential(self):

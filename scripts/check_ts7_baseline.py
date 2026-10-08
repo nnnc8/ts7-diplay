@@ -422,9 +422,12 @@ def parse_instrumentation(raw, source_sha):
         "phase": phase if phase in {"FIRST_SURFACE", "REATTACHED_SURFACE", "RESTARTED_STREAM"} else "NOT_REPORTED",
         "decoder_output": results.get("ts7.media_decoder_output") if results.get("ts7.media_decoder_output") in {"YES", "NO"} else "NOT_REPORTED",
     }
-    for key in ("frames", "red_frames", "decoder_errors"):
+    for key in ("frames", "red_frames", "decoder_errors", "output_formats", "backlog_recoveries", "invalid_units", "stalled_recoveries"):
         value = results.get(f"ts7.media_{key}", "")
         details["media_probe"][key] = int(value) if re.fullmatch(r"[0-9]{1,3}", value) else None
+    for key in ("worker_alive", "input_attempted"):
+        value = results.get(f"ts7.media_{key}")
+        details["media_probe"][key] = value if value in {"YES", "NO"} else "NOT_REPORTED"
 
     def valid(condition, code):
         if not condition:

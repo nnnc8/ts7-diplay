@@ -25,6 +25,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.media.MediaCodecSupport
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
@@ -245,6 +246,11 @@ class BaselineInstrumentation : Instrumentation() {
 
     private fun mediaSurfaceLifecycle() {
         val fixture = SyntheticAvc.load(context)
+        val (sps, pps) = MediaCodecSupport.avcParameterSets(fixture.config)
+        demand(sps.isNotEmpty() && sps[0].toInt() and 31 == 7 &&
+            pps.isNotEmpty() && pps[0].toInt() and 31 == 8, "UPSTREAM_PARAMETER_SETS_REJECT_FIXTURE")
+        demand(fixture.frames.all { MediaCodecSupport.isRandomAccess(MediaCodecSupport.toAnnexB(it), VideoCodec.H264) },
+            "UPSTREAM_NAL_CONVERSION_REJECTS_FIXTURE")
         val sink = AndroidMediaSink(videoWidth = 160, videoHeight = 96)
         val probes = mutableListOf<SurfaceFrameProbe>()
         val workers = mutableListOf<Any>()
@@ -284,6 +290,13 @@ class BaselineInstrumentation : Instrumentation() {
                 results.putString("ts7.media_red_frames", (output.redPixels.get() - redBefore).coerceIn(0, 999).toString())
                 results.putString("ts7.media_decoder_output", if (diagnostics.any { it == "first frame rendered" }) "YES" else "NO")
                 results.putString("ts7.media_decoder_errors", diagnostics.count { it.startsWith("decoder error") }.coerceIn(0, 999).toString())
+                val worker = decoders(sink)[110]
+                results.putString("ts7.media_worker_alive", if (worker != null && (field(worker, "thread") as Thread).isAlive) "YES" else "NO")
+                results.putString("ts7.media_input_attempted", if (worker != null && field(worker, "submittedFrameLogged") == true) "YES" else "NO")
+                results.putString("ts7.media_output_formats", diagnostics.count { it.startsWith("output format requested=") }.coerceIn(0, 999).toString())
+                results.putString("ts7.media_backlog_recoveries", diagnostics.count { it == "recovery: video backlog exceeded 250 ms; waiting for keyframe" }.coerceIn(0, 999).toString())
+                results.putString("ts7.media_invalid_units", diagnostics.count { it == "recovery: invalid video access unit; waiting for keyframe" }.coerceIn(0, 999).toString())
+                results.putString("ts7.media_stalled_recoveries", diagnostics.count { it == "recovery: video decoder input stalled; waiting for keyframe" }.coerceIn(0, 999).toString())
             }
         }
         try {
@@ -293,6 +306,10 @@ class BaselineInstrumentation : Instrumentation() {
             demand(diagnostics.any { it == "first frame rendered" }, "UPSTREAM_RENDER_EVENT_MISSING")
             sink.clearSurface(110, first.surface)
             awaitCheck("DECODER_NOT_RELEASED_ON_SURFACE_DETACH") { field(originalWorker, "decoder") == null }
+            // Upstream clears its field before stop/release returns under this monitor.
+            val released = Thread { synchronized(originalWorker) { Unit } }.apply { isDaemon = true; start() }
+            released.join(5_000)
+            demand(!released.isAlive, "DECODER_RELEASE_MONITOR_TIMEOUT")
             first.close()
             demand(!first.releasedSurfaceIsValid(), "OLD_SURFACE_STILL_VALID")
             phase = "REATTACHED_SURFACE"
