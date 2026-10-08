@@ -1,0 +1,132 @@
+name: TS7 Full Fork R1 baseline
+
+on:
+  push:
+    branches: [feature/ts7-android81-baseline]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+concurrency:
+  group: ts7-baseline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pristine-upstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fork
+          persist-credentials: false
+      - name: Exact, separate pristine upstream checkout
+        uses: actions/checkout@v4
+        with:
+          ref: c8884adcc75bfda3c134db63877bd6c6f83beb74
+          path: upstream
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;25.2.9519653
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Validate checker rejection and sanitized result paths
+        run: python3 fork/scripts/test_ts7_baseline.py
+      - name: Pristine original tests, lint and debug build (APK stays private)
+        run: python3 fork/scripts/check_ts7_baseline.py build --repo upstream --variant upstream --output reports/upstream.json
+      - name: Fixed upstream results only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts7-pristine-upstream-${{ github.sha }}
+          path: reports/upstream.json
+          if-no-files-found: error
+          retention-days: 14
+
+  ts7-api27:
+    needs: pristine-upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fork
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ts7-pristine-upstream-${{ github.sha }}
+          path: reports
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;25.2.9519653
+      - uses: gradle/actions/setup-gradle@v4
+      - name: All original files, history, notices and unchanged decoder
+        run: python3 fork/scripts/check_ts7_baseline.py source --repo fork --require-clean --output reports/source.json
+      - name: TS7 tests, lint, app and native instrumentation APK
+        run: python3 fork/scripts/check_ts7_baseline.py build --repo fork --variant ts7 --output reports/build.json
+      - name: Inspect install APK, native ELF headers, signer and test isolation
+        run: >-
+          python3 fork/scripts/check_ts7_baseline.py apk --repo fork
+          --apk fork/mobile/build/outputs/apk/baseline/mobile-baseline.apk
+          --test-apk fork/mobile/build/outputs/apk/androidTest/baseline/mobile-baseline-androidTest.apk
+          --output reports/apk.json
+      - name: Enable and require Ubuntu KVM
+        run: |
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Actual API27 native instrumentation (no logcat upload)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 27
+          target: default
+          arch: x86_64
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 300
+          disable-linux-hw-accel: false
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -accel on
+          script: >-
+            python3 fork/scripts/check_ts7_baseline.py emulator --repo fork
+            --apk fork/mobile/build/outputs/apk/baseline/mobile-baseline.apk
+            --test-apk fork/mobile/build/outputs/apk/androidTest/baseline/mobile-baseline-androidTest.apk
+            --output reports/emulator.json
+      - name: Package only the exact tested engineering baseline
+        run: >-
+          python3 fork/scripts/check_ts7_baseline.py package --repo fork
+          --apk fork/mobile/build/outputs/apk/baseline/mobile-baseline.apk
+          --upstream-report reports/upstream.json --source-report reports/source.json
+          --build-report reports/build.json --apk-report reports/apk.json
+          --emulator-report reports/emulator.json --artifact-dir artifacts
+          --output reports/baseline-result.json
+      - name: Fixed gate reports (no raw test output or media)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts7-r1-reports-${{ github.sha }}
+          path: reports/*.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: TS7-DiPlay-FullFork-Baseline-R1.apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: TS7-DiPlay-FullFork-Baseline-R1-${{ github.sha }}
+          path: artifacts/TS7-DiPlay-FullFork-Baseline-R1.apk
+          if-no-files-found: error
+          retention-days: 14
