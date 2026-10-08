@@ -23,7 +23,9 @@ UPSTREAM = "c8884adcc75bfda3c134db63877bd6c6f83beb74"
 APPLICATION = "com.shihab.diplay.ts7"
 RUNNER = "com.shilapi.xcertplay.baseline.BaselineInstrumentation"
 FIXTURE = "mobile/src/androidTest/assets/ts7-baseline/red.h264.base64"
-FIXTURE_SHA = "62a054a4e4f667f7c95a0dd774f7a81caa0e8f1145c4b964e017cf80f007cc54"
+FIXTURE_SHA = "167967c78c074f7e3fc9335d9374c359703da9f0e8e64cea328867e8521d7f9e"
+LEGACY_FIXTURE = "mobile/src/androidTest/assets/ts7-baseline/red-all-intra-zero-dpb.h264.base64"
+LEGACY_FIXTURE_SHA = "62a054a4e4f667f7c95a0dd774f7a81caa0e8f1145c4b964e017cf80f007cc54"
 CHECKS = (
     "api27_environment", "classic_home", "classic_settings_connection",
     "choose_phone_dialog", "auth_blocked_no_session", "activity_stop_restart",

@@ -39,10 +39,12 @@ Public builds reject external accessory assets. BYD donor PNGs are excluded at
 asset merging and a neutral original resource overrides the Apple icon. Sources
 and original notices remain in the Fork; APK/source inspection is still required.
 
-Authentication, emulator startup and TS7/runtime release acceptance are pending.
-Missing legally provisioned authentication must remain AUTH_BLOCKED, never fake
-CarPlay success. Prior firmware-derived experimental credentials are not approved
-for this new public Fork, CI or release.
+The exact-commit CI reports and engineering prerelease record the emulator and
+artifact acceptance results; a host build alone cannot establish those results.
+Real TS7 and real iPhone acceptance remain separate. Missing legally provisioned
+authentication must remain AUTH_BLOCKED, never fake CarPlay success. Prior
+firmware-derived experimental credentials are not approved for this new public
+Fork, CI or release.
 
 ## Complete module and wireless path
 

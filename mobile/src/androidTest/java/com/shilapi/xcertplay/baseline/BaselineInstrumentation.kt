@@ -250,7 +250,9 @@ class BaselineInstrumentation : Instrumentation() {
         val (sps, pps) = MediaCodecSupport.avcParameterSets(fixture.config)
         demand(sps.isNotEmpty() && sps[0].toInt() and 31 == 7 &&
             pps.isNotEmpty() && pps[0].toInt() and 31 == 8, "UPSTREAM_PARAMETER_SETS_REJECT_FIXTURE")
-        demand(fixture.frames.all { MediaCodecSupport.isRandomAccess(MediaCodecSupport.toAnnexB(it), VideoCodec.H264) },
+        val accessUnits = fixture.frames.map(MediaCodecSupport::toAnnexB)
+        demand(accessUnits.all { it.isNotEmpty() } && MediaCodecSupport.isRandomAccess(accessUnits.first(), VideoCodec.H264) &&
+            accessUnits.drop(1).none { MediaCodecSupport.isRandomAccess(it, VideoCodec.H264) },
             "UPSTREAM_NAL_CONVERSION_REJECTS_FIXTURE")
         val sink = AndroidMediaSink(videoWidth = 160, videoHeight = 96)
         val probes = mutableListOf<SurfaceFrameProbe>()

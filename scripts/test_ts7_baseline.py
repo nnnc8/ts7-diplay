@@ -25,12 +25,21 @@ class BaselineChecksTest(unittest.TestCase):
     def test_fixture_digest_and_annex_b_counts(self):
         repo = Path(__file__).resolve().parents[1]
         fixture = base64.b64decode((repo / baseline.FIXTURE).read_bytes())
-        self.assertEqual(len(fixture), 1320)
+        self.assertEqual(len(fixture), 276)
         self.assertEqual(baseline.sha(fixture), baseline.FIXTURE_SHA)
         self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x09"), 12)
-        self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x67"), 12)
-        self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x68"), 12)
+        self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x67"), 1)
+        self.assertEqual(fixture.count(b"\x00\x00\x00\x01\x68"), 1)
+        self.assertEqual(fixture.count(b"\x00\x00\x01\x65"), 1)
+        self.assertEqual(fixture.count(b"\x00\x00\x01\x41"), 11)
+
+    def test_zero_dpb_fixture_is_preserved_not_reported_as_supported(self):
+        repo = Path(__file__).resolve().parents[1]
+        fixture = base64.b64decode((repo / baseline.LEGACY_FIXTURE).read_bytes())
+        self.assertEqual(len(fixture), 1320)
+        self.assertEqual(baseline.sha(fixture), baseline.LEGACY_FIXTURE_SHA)
         self.assertEqual(fixture.count(b"\x00\x00\x01\x65"), 12)
+        self.assertNotEqual(baseline.FIXTURE_SHA, baseline.LEGACY_FIXTURE_SHA)
 
     def test_elf_rejects_a_renamed_x86_library(self):
         header = bytearray(24)

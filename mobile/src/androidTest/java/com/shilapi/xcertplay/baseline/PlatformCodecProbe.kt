@@ -41,10 +41,10 @@ internal object PlatformCodecProbe {
                 pps.isEmpty() || pps[0].toInt() and 31 != 8 || fixture.frames.size != FRAME_COUNT) {
                 fail("FIXTURE_INVALID")
             }
-            // Keep the complete AUs, including AUD/SPS/PPS/IDR, as in the original sink.
+            // Keep the encoder's complete IDR and dependent-picture access units.
             val accessUnits = fixture.frames.map { MediaCodecSupport.toAnnexB(it) }
-            if (accessUnits.any { it.isEmpty() || it.size > MAX_INPUT_SIZE ||
-                    !MediaCodecSupport.isRandomAccess(it, VideoCodec.H264) }) {
+            if (accessUnits.any { it.isEmpty() || it.size > MAX_INPUT_SIZE } ||
+                !MediaCodecSupport.isRandomAccess(accessUnits.first(), VideoCodec.H264)) {
                 fail("FIXTURE_INVALID")
             }
 

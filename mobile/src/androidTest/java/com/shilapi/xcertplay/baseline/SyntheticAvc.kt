@@ -13,7 +13,7 @@ internal data class SyntheticAvc(val config: ByteArray, val frames: List<ByteArr
             val encoded = context.assets.open("ts7-baseline/red.h264.base64").use { it.readBytes() }
             val data = Base64.decode(encoded, Base64.DEFAULT)
             val digest = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it.toInt() and 255) }
-            demand(digest == "62a054a4e4f667f7c95a0dd774f7a81caa0e8f1145c4b964e017cf80f007cc54", "FIXTURE_DIGEST_MISMATCH")
+            demand(digest == "167967c78c074f7e3fc9335d9374c359703da9f0e8e64cea328867e8521d7f9e", "FIXTURE_DIGEST_MISMATCH")
             val units = splitAnnexB(data)
             val sps = units.first { it[0].toInt() and 31 == 7 }
             val pps = units.first { it[0].toInt() and 31 == 8 }
@@ -28,8 +28,9 @@ internal data class SyntheticAvc(val config: ByteArray, val frames: List<ByteArr
                 demand(accessUnits.isNotEmpty(), "FIXTURE_ACCESS_UNIT_DELIMITER_MISSING")
                 accessUnits.last().add(unit)
             }
-            val frames = accessUnits.map { accessUnit ->
-                demand(accessUnit.map { it[0].toInt() and 31 } == listOf(9, 7, 8, 5), "FIXTURE_ACCESS_UNIT_STRUCTURE_INVALID")
+            val frames = accessUnits.mapIndexed { index, accessUnit ->
+                val expectedTypes = if (index == 0) listOf(9, 7, 8, 5) else listOf(9, 1)
+                demand(accessUnit.map { it[0].toInt() and 31 } == expectedTypes, "FIXTURE_ACCESS_UNIT_STRUCTURE_INVALID")
                 ByteArrayOutputStream().apply {
                     for (unit in accessUnit) {
                         for (shift in listOf(24, 16, 8, 0)) write(unit.size ushr shift and 255)
