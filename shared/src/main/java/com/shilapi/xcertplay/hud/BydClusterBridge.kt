@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.hud
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -107,7 +107,7 @@ internal object BydClusterBridge {
             ticksSinceSend = 0
             if (!guidanceLogged) {
                 guidanceLogged = true
-                Log.i(TAG, "cluster guidance sent $frame")
+                Log.i(TAG, "cluster guidance sent")
             }
         }
     }

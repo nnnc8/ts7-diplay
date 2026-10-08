@@ -5,7 +5,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbRequest
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.ArrayDeque

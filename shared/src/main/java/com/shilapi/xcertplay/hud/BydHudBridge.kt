@@ -7,7 +7,7 @@ import android.content.ServiceConnection
 import android.os.Binder
 import android.os.IBinder
 import android.os.Parcel
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -86,7 +86,7 @@ internal object BydHudBridge {
         if (frame.messageId == BydHudRouteState.ROUTE_GUIDANCE_UPDATE ||
             frame.messageId == BydHudRouteState.ROUTE_GUIDANCE_MANEUVER_UPDATE
         ) {
-            Log.d(TAG, "route frame=0x${frame.messageId.toString(16)} change=$change guidance=${route.current()}")
+            Log.d(TAG, "route frame=0x${frame.messageId.toString(16)} change=$change")
         }
         when (change) {
             BydHudRouteChange.GUIDANCE -> sendCurrentLocked()

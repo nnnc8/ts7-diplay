@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
+import com.shilapi.xcertplay.PublicLog
 import java.io.Closeable
 import java.io.IOException
 import java.net.DatagramPacket
@@ -94,7 +95,7 @@ class AudioStream(
                 val packetNumber = receivedPackets.incrementAndGet()
                 if (wire.size < RTP_HEADER_LEN + TAIL_LEN) {
                     if (packetNumber == 1) {
-                        android.util.Log.w(
+                        PublicLog.w(
                             TAG,
                             "audio stream type=$streamType short packet bytes=${wire.size}",
                         )
@@ -121,10 +122,9 @@ class AudioStream(
                 } catch (error: Exception) {
                     val failureNumber = authenticationFailures.incrementAndGet()
                     if (failureNumber == 1) {
-                        android.util.Log.w(
+                        PublicLog.w(
                             TAG,
-                            "audio stream type=$streamType first decrypt failure " +
-                                "wire=${wire.toHexString()}",
+                            "audio stream type=$streamType first decrypt failure bytes=${wire.size}",
                             error,
                         )
                     }
@@ -135,14 +135,13 @@ class AudioStream(
                 val rtp = wire.copyOf(RTP_HEADER_LEN) + payload
                 val decryptedNumber = decryptedPackets.incrementAndGet()
                 if (decryptedNumber <= FIRST_PACKET_LOG_COUNT) {
-                    android.util.Log.i(
+                    PublicLog.i(
                         TAG,
                         "audio stream type=$streamType packet=$decryptedNumber sample=$sample " +
-                            "wireBytes=${wire.size} payloadBytes=${payload.size} " +
-                            "payloadHead=${payload.copyOf(minOf(payload.size, 16)).toHexString()}",
+                            "wireBytes=${wire.size} payloadBytes=${payload.size}",
                     )
                 } else if (decryptedNumber % PACKET_LOG_INTERVAL == 0) {
-                    android.util.Log.i(
+                    PublicLog.i(
                         TAG,
                         "audio stream type=$streamType decrypted=$decryptedNumber " +
                             "authFailures=${authenticationFailures.get()}",

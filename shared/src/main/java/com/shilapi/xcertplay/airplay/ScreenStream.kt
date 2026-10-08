@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import java.io.Closeable
 import java.io.InputStream
 import java.net.InetAddress
@@ -99,15 +99,14 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
                 if (firstFrameLogged.compareAndSet(false, true)) {
                     Log.i(
                         TAG,
-                        "video first decrypted frame sealed=${body.size} plain=${payload.size} " +
-                        "head=${payload.hexPrefix(16)}",
+                        "video first decrypted frame sealedBytes=${body.size} plainBytes=${payload.size}",
                     )
                 }
                 listener.onFrame(ScreenCodec.lengthPrefixedToAnnexB(payload))
             }
             OP_VIDEO_CONFIG -> {
                 val (codec, codecData) = ScreenCodec.detectConfig(body)
-                Log.i(TAG, "video codec config codec=$codec body=${body.size} data=${codecData.size}")
+                Log.i(TAG, "video codec config codec=$codec bodyBytes=${body.size} dataBytes=${codecData.size}")
                 listener.onCodec(codec)
                 listener.onConfig(codecData)
             }

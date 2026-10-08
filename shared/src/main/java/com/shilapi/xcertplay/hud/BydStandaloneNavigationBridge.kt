@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit

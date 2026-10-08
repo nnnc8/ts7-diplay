@@ -12,7 +12,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import java.io.Closeable
 import java.util.concurrent.Executor
 
@@ -174,7 +174,7 @@ class Ch341UsbSession internal constructor(
     internal fun bulkWrite(data: ByteArray, timeoutMillis: Int) {
         val transferred = transfer(outputEndpoint, data, timeoutMillis, "write")
         if (transferred != data.size) {
-            Log.w(TAG, "bulk write sent $transferred of ${data.size} bytes: ${data.toHexPreview()}")
+            Log.w(TAG, "bulk write sent $transferred of ${data.size} bytes")
             throw I2cTransportException.Protocol(
                 "CH341 bulk write transferred $transferred of ${data.size} bytes",
             )

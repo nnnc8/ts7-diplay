@@ -21,7 +21,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -67,6 +67,11 @@ class DiPlayActivity : ComponentActivity() {
     private var exportButton: Button? = null
     private var adbStatus: TextView? = null
     private var adbCheckGeneration = 0
+    private val hotspotCheck by lazy { BaselineHotspotCheck(applicationContext) }
+    private var hotspotCheckUsed = false
+    private val hotspotPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) runHotspotCheck() else toast("PERMISSION_DENIED")
+    }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         connect(notificationTransport)
     }
@@ -100,7 +105,7 @@ class DiPlayActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.statusBars())
         }
         setupError = runCatching { DiPlayBootstrap.ensure(this) }.exceptionOrNull()?.let {
-            android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
+            Log.e("DiPlaySetup", "AUTH_BLOCKED")
             getString(R.string.setup_error_auth)
         }
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
@@ -140,6 +145,10 @@ class DiPlayActivity : ComponentActivity() {
         }
     }
     override fun onPause() { handler.removeCallbacks(tick); super.onPause() }
+    override fun onDestroy() {
+        if (hotspotCheckUsed) hotspotCheck.close()
+        super.onDestroy()
+    }
 
     private fun render() {
         status = null; connectButton = null; disconnectButton = null; lastRunning = null
@@ -251,6 +260,18 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button(getString(R.string.open_connection_setup), false) { page = "connection"; render() }, matchButton(12, 60))
         }
         section(content, getString(R.string.diagnostics), R.drawable.ic_dp_diagnostics) { card ->
+            card.addView(label("TS7 Full-Fork Baseline R1 · ENGINEERING BASELINE", 16, WARNING))
+            card.addView(label("${BaselineHotspotCheck.lastResult(this)} · ${if (setupError != null) "AUTH_BLOCKED" else "EXTERNAL_PROVIDER_CONFIGURED"}", 16, TEXT))
+            if (Build.VERSION.SDK_INT == 27) {
+                card.addView(button(getString(R.string.ts7_hotspot_check), false) {
+                    AlertDialog.Builder(this).setTitle(getString(R.string.ts7_hotspot_check))
+                        .setMessage(getString(R.string.ts7_hotspot_check_warning))
+                        .setPositiveButton(getString(R.string.ts7_run_check)) { _, _ ->
+                            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) runHotspotCheck()
+                            else hotspotPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        }.setNegativeButton(getString(R.string.cancel), null).show()
+                }, matchButton(10, 60))
+            }
             exportButton = button(if (exportInProgress) getString(R.string.saving_report) else getString(R.string.save_diagnostic_report), false) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) exportDiagnostics()
                 else chooseReportDestination()
@@ -515,11 +536,12 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun wirelessLinkControls(parent: LinearLayout) {
         val mode = if (pendingCarHotspotSetup) WirelessHotspotMode.MANUAL else AirPlayPersistence.loadWirelessHotspotMode(this)
-        val modes = listOf(WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P)
-        val titles = listOf(getString(R.string.built_in_car_hotspot), getString(R.string.wifi_direct))
+        val modes = if (Build.VERSION.SDK_INT == 27) listOf(WirelessHotspotMode.MANUAL, WirelessHotspotMode.LOCAL_ONLY_HOTSPOT)
+            else listOf(WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P)
+        val titles = listOf(getString(R.string.built_in_car_hotspot), getString(if (Build.VERSION.SDK_INT == 27) R.string.localonlyhotspot else R.string.wifi_direct))
         val descriptions = listOf(
             getString(R.string.hotspot_mode_manual_desc),
-            getString(R.string.hotspot_mode_p2p_desc)
+            getString(if (Build.VERSION.SDK_INT == 27) R.string.hotspot_hint_local else R.string.hotspot_mode_p2p_desc)
         )
         val wide = resources.configuration.screenWidthDp >= 850
         val choices = if (wide) row().apply { gravity = Gravity.TOP } else column()
@@ -874,7 +896,7 @@ class DiPlayActivity : ComponentActivity() {
     private fun refreshStatus() {
         val running = CarPlayBackgroundSession.hasSession()
         status?.text = when {
-            setupError != null -> getString(R.string.setup_needs_attention)
+            setupError != null -> "AUTH_BLOCKED"
             CarPlayBackgroundSession.active -> getString(R.string.carplay_connected)
             running -> getString(R.string.connecting_to_your_iphone)
             DiPlayPreferences.phoneAddress(this) != null -> "${getString(R.string.status_ready_for_prefix)}${DiPlayPreferences.phoneName(this)}"
@@ -909,20 +931,23 @@ class DiPlayActivity : ComponentActivity() {
         Thread({
             val result = runCatching {
                 val report = buildString {
-                    appendLine("DiPlay ${version()} · private beta diagnostic report")
-                    appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
-                    appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")
+                    appendLine("TS7 DiPlay Full-Fork Baseline R1")
+                    appendLine("ENGINEERING BASELINE / NOT YET VERIFIED AS FUNCTIONAL CARPLAY ON TS7")
+                    appendLine("API: ${Build.VERSION.SDK_INT}")
                     appendLine("Connection: ${if (AirPlayPersistence.loadWirelessEnabled(appContext)) "wireless" else "USB"}")
-                    appendLine("Authentication: local experimental beta identity; no remote fallback")
-                    appendLine("CarPlay setup: ${if (setupError == null) "ready" else "authentication unavailable"}")
+                    appendLine("Authentication: ${if (setupError == null) "EXTERNAL_PROVIDER_CONFIGURED_NOT_CERTIFIED" else "AUTH_BLOCKED"}")
+                    appendLine("Phone selection: ${if (DiPlayPreferences.phoneAddress(appContext) == null) "NOT_SELECTED" else "SELECTED"}")
+                    appendLine("Hotspot: ${BaselineHotspotCheck.lastResult(appContext)}")
+                    appendLine("Bluetooth bootstrap: ${if (setupError != null) "NOT_STARTED_AUTH_BLOCKED" else "NOT_VERIFIED"}")
                     appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
                     appendLine("CarPlay size: ${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
                     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
-                    appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
                     appendLine()
                     appendLine("--- Last display negotiation (timestamps distinguish it from current settings) ---")
-                    appendLine(DisplayDiagnosticSnapshot.report(appContext))
+                    DisplayDiagnosticSnapshot.report(appContext).lineSequence().forEach { line ->
+                        DiagnosticRedactor.redact(line)?.let { appendLine(it) }
+                    }
                     appendLine()
                     for (name in SessionLogFile.REPORT_NAMES) {
                         val file = File(appContext.filesDir, "logs/$name")
@@ -968,6 +993,19 @@ class DiPlayActivity : ComponentActivity() {
         AlertDialog.Builder(this).setTitle(title).setMessage(body).setPositiveButton(getString(R.string.app_settings)) { _, _ ->
             openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }.setNegativeButton(getString(R.string.later), null).show()
+    }
+    private fun runHotspotCheck() {
+        if (CarPlayBackgroundSession.hasSession()) { toast("HOTSPOT_CHECK_SESSION_ACTIVE"); return }
+        hotspotCheckUsed = true
+        hotspotCheck.start { code -> runOnUiThread {
+            if (!isFinishing && !isDestroyed) {
+                AlertDialog.Builder(this).setTitle(getString(R.string.ts7_hotspot_check))
+                    .setMessage("$code\n${getString(R.string.ts7_hotspot_check_result)}")
+                    .setPositiveButton(getString(R.string.done), null).show()
+                render()
+            }
+        } }
+        toast("HOTSPOT_STARTING")
     }
     private fun openSystem(intent: Intent) { runCatching { startActivity(intent) }.onFailure { toast(getString(R.string.open_this_setting_from_your_car_s_settings_app)) } }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }

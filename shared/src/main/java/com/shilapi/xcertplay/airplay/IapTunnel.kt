@@ -64,8 +64,8 @@ class IapTunnel(
         }.onFailure { error ->
             safeClose(secondary)
             listener.onDebug(
-                "AirPlay iAP tunnel secondary listener failed address=" +
-                    "$secondaryAddress port=${bound.localPort}: ${error.message}",
+                "AirPlay iAP tunnel secondary listener unavailable code=" +
+                    com.shilapi.xcertplay.PublicDiagnostics.failureCode(error),
             )
         }
         servers.forEach { server ->

@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay.transport
 
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import java.io.Closeable
 import java.util.ArrayDeque
 

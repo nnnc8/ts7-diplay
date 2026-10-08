@@ -7,7 +7,8 @@ import android.os.Build
 import android.os.Binder
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
+import com.shilapi.xcertplay.PublicDiagnostics
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
@@ -249,8 +250,8 @@ class CarPlayVpnService : VpnService() {
         listener: AirPlaySessionListener,
         error: Throwable,
     ) {
-        val message = error.message ?: error.javaClass.simpleName
-        Log.e(TAG, "CarPlay transport stopped: $message", error)
+        val message = PublicDiagnostics.failureCode(error)
+        Log.e(TAG, "CarPlay transport stopped code=$message")
         Thread(
             {
                 synchronized(this) {

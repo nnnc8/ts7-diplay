@@ -31,7 +31,7 @@ class LocalOnlyHotspotManagerTest {
     @Test @Config(sdk = [33])
     fun android13RequestsFiveGhzAndClosesLateCustomReservation() {
         val radio = shadowOf(RuntimeEnvironment.getApplication().getSystemService(WifiManager::class.java)) as Radio
-        lateReservation(cancel = true)
+        lateReservation(cancel = true, vendorTuning = true)
         assertEquals(1, radio.customRequests)
         assertEquals(0, radio.standardRequests)
         assertEquals(SoftApConfiguration.BAND_5GHZ,
@@ -45,15 +45,23 @@ class LocalOnlyHotspotManagerTest {
     fun firmwarePermissionDenialFallsBackWithoutRequestingPrivilege() {
         val radio = shadowOf(RuntimeEnvironment.getApplication().getSystemService(WifiManager::class.java)) as Radio
         radio.denyCustom = true
-        lateReservation(cancel = true)
+        lateReservation(cancel = true, vendorTuning = true)
         assertEquals(1, radio.customRequests)
         assertEquals(1, radio.standardRequests)
     }
 
-    private fun lateReservation(cancel: Boolean) {
+    @Test @Config(sdk = [33])
+    fun publicBaselineNeverRequestsVendorFiveGhzOrAFixedChannel() {
+        val radio = shadowOf(RuntimeEnvironment.getApplication().getSystemService(WifiManager::class.java)) as Radio
+        lateReservation(cancel = true)
+        assertEquals(0, radio.customRequests)
+        assertEquals(1, radio.standardRequests)
+    }
+
+    private fun lateReservation(cancel: Boolean, vendorTuning: Boolean = false) {
         val context = RuntimeEnvironment.getApplication()
         val radio = shadowOf(context.getSystemService(WifiManager::class.java)) as Radio
-        val manager = LocalOnlyHotspotManager(context)
+        val manager = LocalOnlyHotspotManager(context, vendorHotspotTuningEnabled = vendorTuning)
         val worker = Executors.newSingleThreadExecutor()
         try {
             val result = worker.submit<Boolean> { runCatching { manager.start(if (cancel) 5000 else 100) }.isFailure }

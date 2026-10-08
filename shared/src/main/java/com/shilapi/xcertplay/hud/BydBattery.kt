@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import android.os.SystemClock
 import com.shilapi.xcertplay.transport.VehicleStatusProvider
 import com.shilapi.xcertplay.transport.VehicleStatusSnapshot
@@ -118,7 +118,7 @@ internal object BydBatteryStatus : VehicleStatusProvider {
     fun accept(appContext: Context, reading: BydBatteryReading) {
         context = appContext.applicationContext
         if (cache.accept(reading)) {
-            Log.i(TAG, "battery ${reading.percent} % range ${reading.rangeKm} km ${reading.remainingKwh} kWh charging=${reading.charging}")
+            Log.i(TAG, "battery reading updated")
         }
     }
 

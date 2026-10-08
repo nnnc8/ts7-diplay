@@ -23,7 +23,7 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextUtils
 import android.text.TextWatcher
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
@@ -119,7 +119,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     // CH341 USB\VID_1A86&PID_5512&REV_0304 is the deployment-supplied bridge identity.
     private fun createRuntimeConfig(): CarPlayRuntimeConfig = CarPlayRuntimeConfig(
-        mfiTarget = MfiTarget.LOCAL,
+        mfiTarget = mfiTarget,
         ch341Devices = if (mfiTarget == MfiTarget.USB_CH341) {
             listOf(UsbDeviceId(0x1a86, 0x5512))
         } else {
@@ -1552,6 +1552,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val targetChoice = settingsChoiceRow(
             label = getString(R.string.mfi_certificate_signing_target),
             options = listOf(
+                MfiTarget.LOCAL to getString(R.string.local_offline),
                 MfiTarget.USB_CH341 to getString(R.string.usb_ch341),
                 MfiTarget.I2C to getString(R.string.i2c),
                 MfiTarget.REMOTE to getString(R.string.remote),
@@ -3067,6 +3068,7 @@ class CarPlayHostActivity : ComponentActivity() {
             val description = status.describe()
             setConnectionStage(description)
             when (status) {
+                CarPlayStatus.AuthBlocked -> wifiRecoveryButton?.visibility = View.GONE
                 is CarPlayStatus.Failed -> if (status.wifiResetRequired) {
                     wifiRecoveryButton?.visibility = View.VISIBLE
                 } else {
@@ -3227,6 +3229,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun audioCaptureDirectory(): File? {
+        if (!Ts7PublicProfile.SENSITIVE_CAPTURES_ENABLED) return null
         if (!File(filesDir, AUDIO_CAPTURE_MARKER).isFile) return null
         return File(filesDir, AUDIO_CAPTURE_DIRECTORY)
     }
@@ -3550,6 +3553,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun friendlyStage(message: String): String = when {
+        message == Ts7PublicProfile.AUTH_BLOCKED -> Ts7PublicProfile.AUTH_BLOCKED
         message.contains("Turn on Wi-Fi", true) -> getString(R.string.turn_on_wi_fi_in_the_head_unit_s_settings_to_connect)
         message.contains("Allow precise Location", true) -> getString(R.string.allow_precise_location_for_diplay_in_the_head_unit_s_app_p)
         message.contains("Allow Nearby devices", true) -> getString(R.string.allow_nearby_devices_for_diplay_in_the_head_unit_s_app_per)
@@ -3640,9 +3644,10 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.WaitingForMfi -> getString(R.string.waiting_for_mfi_coprocessor)
         CarPlayStatus.RequestingMfiPermission -> getString(R.string.requesting_mfi_usb_permission)
         CarPlayStatus.MfiReady -> getString(R.string.mfi_authentication_ready)
+        CarPlayStatus.AuthBlocked -> Ts7PublicProfile.AUTH_BLOCKED
         CarPlayStatus.StartingHotspot -> getString(R.string.starting_wireless_hotspot)
         is CarPlayStatus.HotspotReady ->
-            getString(R.string.status_hotspot_ready, backend, ssid, band, if (channel == 0) getString(R.string.auto_value) else channel.toString())
+            "$backend $band channel=$channel"
         CarPlayStatus.WaitingForPairedIphone -> getString(R.string.waiting_for_paired_iphone)
         CarPlayStatus.ConnectingBluetooth -> getString(R.string.connecting_bluetooth)
         CarPlayStatus.RunningWireless -> getString(R.string.wireless_carplay_control_running)

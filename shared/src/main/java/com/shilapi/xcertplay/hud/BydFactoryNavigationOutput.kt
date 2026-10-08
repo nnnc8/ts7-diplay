@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import java.lang.reflect.InvocationTargetException
 
 /** Temporary HUD-test output using the installed factory SDK and the app's own identity. */
@@ -30,7 +30,7 @@ internal class BydFactoryNavigationOutput(private val context: Context) {
             valueClass.getField("intArrayValue").set(value, intArrayOf(distance, turn, turn))
             checkResult("guidance", sdk.javaClass.getMethod("set", IntArray::class.java, valueClass).invoke(sdk, ids, value))
             if (!logged) {
-                Log.i(TAG, "Factory navigation accepted turn=$turn distance=$distance; visible HUD output unconfirmed")
+                Log.i(TAG, "Factory navigation accepted; visible HUD output unconfirmed")
                 logged = true
             }
         } catch (error: Exception) {
@@ -38,7 +38,7 @@ internal class BydFactoryNavigationOutput(private val context: Context) {
             clear()
             disabled = true
             val cause = (error as? InvocationTargetException)?.targetException ?: error
-            Log.w(TAG, "Factory navigation disabled: ${cause.javaClass.simpleName}: ${cause.message}")
+            Log.w(TAG, "Factory navigation disabled", cause)
         }
     }
 
@@ -53,7 +53,7 @@ internal class BydFactoryNavigationOutput(private val context: Context) {
         } catch (error: Exception) {
             disabled = true
             val cause = (error as? InvocationTargetException)?.targetException ?: error
-            Log.w(TAG, "Factory navigation cleanup failed: ${cause.message}")
+            Log.w(TAG, "Factory navigation cleanup failed", cause)
         }
     }
 

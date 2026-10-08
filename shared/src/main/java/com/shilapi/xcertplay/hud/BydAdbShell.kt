@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.hud
 
 import android.content.Context
 import android.os.SystemClock
-import android.util.Log
+import com.shilapi.xcertplay.PublicLog as Log
 import com.shilapi.xcertplay.adb.AdbKeys
 import com.shilapi.xcertplay.adb.LocalAdb
 

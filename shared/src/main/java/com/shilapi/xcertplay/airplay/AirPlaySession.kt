@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.airplay
 
-import android.util.Log
+import com.shilapi.xcertplay.PublicDiagnostics
+import com.shilapi.xcertplay.PublicLog as Log
+import com.shilapi.xcertplay.Ts7PublicProfile
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import java.io.BufferedInputStream
@@ -160,7 +162,7 @@ class AirPlaySession(
             output.flush()
             true
         } catch (error: Exception) {
-            Log.w(TAG, "airplay event command failed type=${command["type"]}", error)
+            Log.w(TAG, "airplay event command failed", error)
             close()
             false
         }
@@ -175,11 +177,9 @@ class AirPlaySession(
         val sent = sendHidReport(AirPlayHid.TOUCH_HID_UID, report)
         if (sent) com.shilapi.xcertplay.media.TouchLatencyProbe.onTouchSent(sendStartNs, System.nanoTime() - sendStartNs)
         if (sent && firstTouchSendLogged.compareAndSet(false, true)) {
-            val first = scaled.firstOrNull()
             Log.i(
                 TAG,
-                "airplay touch report sent contacts=${scaled.size} first=" +
-                    "(${first?.x},${first?.y},down=${first?.down}) report=${report.toHexString()}",
+                "airplay touch report sent contacts=${scaled.size} bytes=${report.size}",
             )
         } else if (!sent && touchSendFailureLogged.compareAndSet(false, true)) {
             Log.w(TAG, "airplay touch dropped: event channel is not ready")
@@ -289,7 +289,7 @@ class AirPlaySession(
                     val decrypted = try {
                         activeCipher.decrypt(encBuf)
                     } catch (error: Exception) {
-                        closeReason = "control decrypt failed: ${error.message ?: error.javaClass.simpleName}"
+                        closeReason = "CONTROL_DECRYPT_FAILED"
                         Log.e(TAG, "airplay $closeReason encrypted=${encBuf.size}", error)
                         break
                     }
@@ -306,7 +306,7 @@ class AirPlaySession(
                         !path.endsWith("/feedback") &&
                             !(request.method == "POST" && path.endsWith("/command"))
                     debugLog(
-                        "airplay rx ${request.method} ${request.path} cseq=$cseq body=${request.body.size}",
+                        "airplay control rx bodyBytes=${request.body.size}",
                         showInDebugOverlay,
                     )
                     trace(
@@ -318,13 +318,13 @@ class AirPlaySession(
                     } catch (error: Exception) {
                         Log.e(
                             TAG,
-                            "airplay handler failed ${request.method} ${request.path} cseq=$cseq",
+                            "airplay handler failed",
                             error,
                         )
                         RtspMessage.Response(status = 500)
                     }
                     debugLog(
-                        "airplay tx status=${response.status ?: 200} cseq=$cseq body=${response.body.size}",
+                        "airplay control tx status=${response.status ?: 200} bodyBytes=${response.body.size}",
                         showInDebugOverlay,
                     )
                     val wire = RtspMessage.buildResponse(request, response)
@@ -340,7 +340,7 @@ class AirPlaySession(
                 notifySetupResponseSent()
             }
         } catch (error: Exception) {
-            closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
+            closeReason = "CONTROL_IO_FAILED"
             if (!closed.get()) Log.e(TAG, "airplay $closeReason", error)
         } finally {
             debugLog("airplay control closing reason=$closeReason activeStreams=$activeStreams")
@@ -376,12 +376,7 @@ class AirPlaySession(
             path.endsWith("/info") -> {
                 val info = AirPlayInfoPlist.build(config)
                 if (request.body.isNotEmpty()) {
-                    val requestInfo = try {
-                        BplistCodec.decode(request.body).toString()
-                    } catch (_: Exception) {
-                        "<unparseable ${request.body.size} bytes>"
-                    }
-                    debugLog("airplay /info request=$requestInfo")
+                    debugLog("airplay /info request bodyBytes=${request.body.size}")
                 }
                 Log.i(
                     TAG,
@@ -389,7 +384,7 @@ class AirPlaySession(
                         "audioFormats=${(info["audioFormats"] as? List<*>)?.size ?: 0} " +
                         "audioLatencies=${(info["audioLatencies"] as? List<*>)?.size ?: 0}",
                 )
-                debugLog("airplay /info displays=${info["displays"]}")
+                debugLog("airplay /info displays=${(info["displays"] as? List<*>)?.size ?: 0}")
                 RtspMessage.Response(
                     headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
                     body = BplistCodec.encode(info),
@@ -420,16 +415,18 @@ class AirPlaySession(
     }
 
     private fun debugLog(message: String, uiVisible: Boolean = true) {
-        Log.i(TAG, message)
+        val safe = PublicDiagnostics.redact(message) ?: return
+        Log.i(TAG, safe)
         if (!uiVisible) return
         try {
-            listener.onDebugLog(message)
+            listener.onDebugLog(safe)
         } catch (error: Exception) {
             Log.w(TAG, "debug log callback failed", error)
         }
     }
 
     private fun trace(message: String) {
+        if (!Ts7PublicProfile.RAW_PROTOCOL_TRACES_ENABLED) return
         try {
             listener.onDebugLog("TRACE $message")
         } catch (error: Exception) {
@@ -444,11 +441,11 @@ class AirPlaySession(
             Log.e(TAG, "airplay SETUP plist decode failed body=${request.body.size}", error)
             return RtspMessage.Response(status = 400)
         }
-        debugLog("airplay SETUP keys=${dict.keys.sorted()}")
+        debugLog("airplay SETUP fields=${dict.size}")
         val streams = dict["streams"] as? List<*>
         if (streams != null) {
             val responseStreams = handleStreams(streams)
-            debugLog("airplay SETUP response streams=$responseStreams")
+            debugLog("airplay SETUP response streams=${responseStreams.size}")
             val body = BplistCodec.encode(linkedMapOf("streams" to responseStreams))
             trace("airplay SETUP response bplistHex=${body.toHex()}")
             return RtspMessage.Response(headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE), body = body)
@@ -458,7 +455,7 @@ class AirPlaySession(
         val deviceId = string(dict["deviceID"])
         val wifiMac = string(dict["macAddress"]).lowercase()
         val model = string(dict["model"])
-        debugLog(AirPlayPeerDiagnostics.summary(model, string(dict["osVersion"]), string(dict["sourceVersion"])))
+        debugLog("airplay peer metadata received fields=${dict.size}")
         if (deviceId.isNotEmpty()) deviceBtMac = deviceId
         if (name.isNotEmpty() || deviceId.isNotEmpty() || wifiMac.isNotEmpty()) {
             listener.onDeviceInfo(this, AirPlayDeviceInfo(name, deviceId, wifiMac, model))
@@ -489,7 +486,7 @@ class AirPlaySession(
         for (entry in streams) {
             val stream = asMap(entry) ?: continue
             val type = long(stream["type"])?.toInt() ?: continue
-            debugLog("airplay SETUP stream type=$type payload=$stream")
+            debugLog("airplay SETUP stream type=$type fields=${stream.size}")
             when (type) {
                 STREAM_TYPE_MAIN_SCREEN, STREAM_TYPE_ALT_SCREEN -> {
                     val port = media.onScreen(this, type, stream)
@@ -537,7 +534,7 @@ class AirPlaySession(
         }
         val type = string(body["type"])
         val params = asMap(body["params"]) ?: emptyMap()
-        debugLog("airplay command type=$type keys=${params.keys.sorted()}")
+        debugLog("airplay command received fields=${params.size}")
         if (type == "requestUI") listener.onHostUiRequested(this)
         listener.onCommand(this, type, params)
         return RtspMessage.Response(status = 200)
@@ -686,7 +683,7 @@ class AirPlaySession(
                 for (message in parsed.messages) {
                     if (message.method.startsWith("RTSP/") || message.method.startsWith("HTTP/")) continue
                     debugLog(
-                        "airplay event rx ${message.method} ${message.path} cseq=${message.headers["cseq"] ?: "-"} body=${message.body.size}",
+                        "airplay event rx bodyBytes=${message.body.size}",
                     )
                     val response = RtspMessage.buildResponse(message, RtspMessage.Response(status = 200))
                     trace(

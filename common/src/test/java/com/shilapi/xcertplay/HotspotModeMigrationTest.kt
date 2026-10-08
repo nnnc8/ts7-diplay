@@ -39,4 +39,18 @@ class HotspotModeMigrationTest {
         prefs.edit().putString("wireless_hotspot_mode", "WIFI_P2P").apply()
         assertEquals(WirelessHotspotMode.MANUAL, AirPlayPersistence.loadWirelessHotspotMode(context))
     }
+
+    @Test @Config(sdk = [27]) fun ts7DefaultsToOriginalLocalBackendAndPreservesSelection() {
+        prefs.edit().clear().apply()
+        assertEquals(WirelessHotspotMode.LOCAL_ONLY_HOTSPOT, AirPlayPersistence.loadWirelessHotspotMode(context))
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.LOCAL_ONLY_HOTSPOT)
+        assertEquals("LOCAL_ONLY_HOTSPOT", prefs.getString("wireless_hotspot_mode", null))
+    }
+
+    @Test @Config(sdk = [27]) fun ts7KeepsExplicitManualConfiguration() {
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
+        AirPlayPersistence.saveManualHotspotPassphrase(context, "test-password")
+        assertEquals(WirelessHotspotMode.MANUAL, AirPlayPersistence.loadWirelessHotspotMode(context))
+        assertEquals("test-password", AirPlayPersistence.loadManualHotspotPassphrase(context))
+    }
 }
