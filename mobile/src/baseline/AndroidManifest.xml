@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- Removal marker only; the APK inspection requires this vendor permission absent. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:node="remove" tools:ignore="ProtectedPermissions" />
+    <application android:label="TS7 DiPlay Full-Fork Baseline R1" tools:replace="android:label">
+        <receiver android:name="com.shilapi.xcertplay.BootReceiver" android:enabled="false"
+            tools:replace="android:enabled" />
+    </application>
+</manifest>

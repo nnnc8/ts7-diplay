@@ -2,9 +2,11 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-// Optional local-only input. CI and ordinary source builds contain no accessory identity.
-val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
-    .orNull?.let { file(it).canonicalFile }
+// Public TS7 baseline packages never carry accessory identity, including external inputs.
+val localAuthenticationAssets: File? = null
+check(providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR").orNull == null) {
+    "TS7 public baseline forbids bundled authentication assets; provision an authorized provider privately."
+}
 
 android {
     namespace = "com.shilapi.xcertplay"
@@ -19,6 +21,7 @@ android {
         multiDexEnabled = true
         versionCode = 26
         versionName = "0.2.7"
+        testInstrumentationRunner = "com.shilapi.xcertplay.baseline.BaselineInstrumentation"
 
     }
 
@@ -48,7 +51,15 @@ android {
             }
             signingConfig = signingConfigs.getByName("release")
         }
+        create("baseline") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".ts7"
+            versionNameSuffix = "-ts7-baseline-r1"
+            matchingFallbacks += "debug"
+        }
     }
+    androidResources { ignoreAssetsPattern = "byd-hud-icons" }
+    testBuildType = "baseline"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -63,7 +74,7 @@ dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
 }
 
-// No implicit import. Only the two explicitly selected local runtime assets are allowed.
+// No credential input is allowed in any public TS7 variant.
 val credentialAssets = files(android.sourceSets.flatMap { source ->
     source.assets.directories.map { directory ->
         fileTree(directory) {
@@ -88,23 +99,17 @@ val rejectBundledCredentials by tasks.registering {
 }
 tasks.named("preBuild") { dependsOn(rejectBundledCredentials) }
 
-// Car-test packages must be standalone. Keep ordinary source/CI builds identity-free.
+// Keep the historical task name, but explicitly disable credential-bundled TS7 builds.
 val verifyStandaloneAuthentication by tasks.registering {
     group = "verification"
-    description = "Require the explicit runtime authentication input for a standalone car-test APK."
-    val directory = localAuthenticationAssets
+    description = "Reject historical credential-bundled standalone packages."
     doLast {
-        check(directory != null) {
-            "Standalone car builds require DIPLAY_AUTH_ASSETS_DIR; assembleDebug alone is source-only."
-        }
-        check(listOf("identity.pk8", "certificate.p7b").all {
-            directory.resolve("offline-mfi/$it").let { file -> file.isFile && file.length() > 0 }
-        }) { "Standalone CarPlay authentication files are missing or empty" }
+        error("Credential-bundled builds are disabled. Use assembleBaseline and legally authorized external provisioning.")
     }
 }
 tasks.named("preBuild") { mustRunAfter(verifyStandaloneAuthentication) }
 tasks.register("assembleStandaloneDebug") {
     group = "build"
-    description = "Build a standalone car-test APK with explicitly provisioned authentication."
+    description = "Disabled historical packaging entry; use assembleBaseline."
     dependsOn(verifyStandaloneAuthentication, "assembleDebug")
 }
