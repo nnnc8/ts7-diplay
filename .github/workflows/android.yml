@@ -56,7 +56,9 @@ jobs:
           grep -Fq "package: name='com.shihab.diplay.hudtest' versionCode='68' versionName='0.2.48-hud-test'" diagnostic-apk/apk-badging.txt
           grep -Fxq "sdkVersion:'19'" diagnostic-apk/apk-badging.txt
           unzip -Z1 diagnostic-apk/ts7-hotspot-diagnostic-v0.2.48.apk > diagnostic-apk/apk-entries.txt
-          if grep -Ei '(^assets/offline-mfi/|\.(pk8|p7b|key|pem|p12|pfx|jks|keystore)$)' diagnostic-apk/apk-entries.txt; then
+          # The upstream res/raw/update_ca_bundle.pem is a public TLS trust store.
+          # Reject accessory identities and key containers, not public update CAs.
+          if grep -Ei '(^assets/offline-mfi/|\.(pk8|p7b|key|p12|pfx|jks|keystore)$|^assets/.*\.pem$)' diagnostic-apk/apk-entries.txt; then
             echo 'Diagnostic APK must contain no authentication credentials.' >&2
             exit 1
           fi

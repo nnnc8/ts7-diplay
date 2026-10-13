@@ -54,6 +54,14 @@ checks at its exact base/branch, retain `-x` during future syncs, and upload the
 identity-free upstream debug APK with package/version and credential checks.
 No runtime source, test behavior, Gradle configuration or feature was added.
 
+The first v0.2.48 validation run
+[38416771230](https://github.com/nnnc8/ts7-diplay/actions/runs/38416771230)
+passed JVM/lint/build and the API27 emulator. The initial APK filename scan
+incorrectly treated the upstream public `res/raw/update_ca_bundle.pem` TLS trust
+store as an authentication credential. The scan now retains that unchanged public
+CA resource while still rejecting `assets/offline-mfi/`, private-key containers
+and PEM files in assets. This adjustment changes CI packaging validation only.
+
 ## Equivalence and required validation
 
 The TS7 wake observer, recovery policy, tethering changes, preference, boot
