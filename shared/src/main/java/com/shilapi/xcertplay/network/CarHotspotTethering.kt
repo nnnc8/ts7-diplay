@@ -26,6 +26,8 @@ object CarHotspotTethering {
         CANCELLED("Hotspot startup was cancelled"),
     }
 
+    // Only an app-op preflight. ROM provisioning can additionally require TETHER_PRIVILEGED;
+    // the framework request, not this check, determines whether control is actually permitted.
     fun permitted(context: Context): Boolean = Build.VERSION.SDK_INT < 23 || Settings.System.canWrite(context)
 
     /** Blocking; serialize startup and connection requests, checking cancellation after acquiring the lock. */
@@ -63,7 +65,9 @@ object CarHotspotTethering {
                 client.set(adb)
                 adb.use {
                     if (isCancelled() || Thread.currentThread().isInterrupted || System.nanoTime() >= deadline) false
-                    else if (adb.connect(mayAsk = false) != LocalAdb.Access.READY) false
+                    else if (adb.connect(mayAsk = false).also {
+                            if (it == LocalAdb.Access.NOT_APPROVED) throw SecurityException("Local ADB is not authorized")
+                        } != LocalAdb.Access.READY) false
                     else CarHotspotAdbFallback.start(deadline, isCancelled,
                         state = { CarHotspotStatus.isEnabled(context) }, shell = adb::shell, log = log)
                         .also { if (it) observedAdbState.set(true) }
@@ -77,6 +81,7 @@ object CarHotspotTethering {
             stateWithAdbObservation({ CarHotspotStatus.isEnabled(context) }, observedAdbState),
             startFallback = startAdb,
             start = startReflection,
+            isTransitioning = { CarHotspotStatus.isTransitioning(context) },
         ).also { log("car hotspot auto-enable: ${it.diagnostic}") }
     }
 
@@ -111,6 +116,7 @@ object CarHotspotTethering {
         isEnabled: () -> Boolean?,
         startFallback: (() -> Boolean)?,
         start: (ResultReceiver) -> Unit,
+        isTransitioning: () -> Boolean = { false },
     ): Result {
         fun stopped(): Result? = when {
             isCancelled() || Thread.currentThread().isInterrupted -> Result.CANCELLED
@@ -130,27 +136,42 @@ object CarHotspotTethering {
         }
         try {
             stopped()?.let { return it }
+            while (isTransitioning()) {
+                stopped()?.let { return it }
+                try { Thread.sleep(250L) } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return Result.CANCELLED
+                }
+            }
             val initialState = isEnabled()
             stopped()?.let { return it }
             if (initialState == true) return Result.READY
             val permission = canWrite()
             stopped()?.let { return it }
-            if (!permission) return Result.PERMISSION_REQUIRED
+            var fallbackFailure: Result? = null
             fun fallback(): Boolean {
                 stopped()?.let { return false }
                 return try { startFallback?.invoke() == true } catch (error: Exception) {
                     if (error is InterruptedException) Thread.currentThread().interrupt()
+                    fallbackFailure = when (error) {
+                        is SecurityException -> Result.PERMISSION_REQUIRED
+                        is IllegalStateException -> Result.FAILED
+                        else -> null
+                    }
                     false
                 }
             }
             val unknown = initialState == null
-            if (unknown) {
-                if (!fallback()) return stopped() ?: Result.UNSUPPORTED
+            if (unknown || !permission) {
+                // An already-authorized ADB path may work without the application's app-op.
+                // It still has to observe the existing AP and use a ROM-advertised command.
+                if (!fallback()) return stopped() ?: fallbackFailure ?:
+                    if (!permission) Result.PERMISSION_REQUIRED else Result.UNSUPPORTED
             }
             val response = AtomicInteger(-1)
             try {
                 stopped()?.let { return it }
-                if (!unknown) {
+                if (!unknown && permission) {
                     start(object : ResultReceiver(null) {
                         override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                             response.set(resultCode)
@@ -166,7 +187,7 @@ object CarHotspotTethering {
                     stopped()?.let { return it }
                     return when {
                         error is InvocationTargetException -> if (error.targetException is SecurityException) Result.PERMISSION_REQUIRED else Result.FAILED
-                        error is ReflectiveOperationException -> Result.UNSUPPORTED
+                        error is ReflectiveOperationException -> fallbackFailure ?: Result.UNSUPPORTED
                         error is SecurityException -> Result.PERMISSION_REQUIRED
                         else -> Result.FAILED
                     }

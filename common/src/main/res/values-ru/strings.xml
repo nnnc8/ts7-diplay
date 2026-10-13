@@ -657,4 +657,5 @@
     <string name="settings_car_bluetooth_mac_invalid">Пожалуйста, введите корректный 12-значный шестнадцатеричный MAC-адрес.</string>
     <string name="settings_harman_fullscreen_experimental">Полный экран Harman (экспериментально)</string>
     <string name="settings_harman_fullscreen_experimental_description">Позволяет CarPlay занять область штатной боковой панели на совместимых устройствах Harman. Применяется при следующем открытии окна CarPlay; на других прошивках возможны ошибки отображения.</string>
+    <string name="settings_car_hotspot_recovery_description">Восстанавливает сохранённую системную точку доступа при открытии DiPlay и после пробуждения, когда отключён режим полёта. Сохраняет имя, пароль и настройки безопасности. При включении показывает фоновое уведомление. Нужны поддерживаемые прошивкой разрешения или ранее авторизованный ADB; доступа к системным настройкам может быть недостаточно.</string>
 </resources>

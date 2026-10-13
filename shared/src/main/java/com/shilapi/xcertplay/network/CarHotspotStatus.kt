@@ -15,6 +15,13 @@ object CarHotspotStatus {
     private const val EXTRA_WIFI_AP_STATE = "wifi_state"
     private const val EXTRA_WIFI_AP_MODE = "wifi_ap_mode"
 
+    /** Do not issue a second start while the firmware is already enabling/disabling its AP. */
+    fun isTransitioning(context: Context): Boolean = runCatching {
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val state = wifi?.let { WifiManager::class.java.getMethod("getWifiApState").invoke(it) as? Int }
+        state == 10 || state == 12
+    }.getOrDefault(false)
+
     /**
      * True/false from the Wi-Fi AP state, or null when the firmware hides it (then callers must
      * not block the connection). Interface flags are not used: BYD keeps wlan1 up with an address

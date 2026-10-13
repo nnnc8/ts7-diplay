@@ -12,10 +12,26 @@ internal object CarHotspotAdbFallback {
         shell: (String, Int) -> String?, log: (String) -> Unit): Boolean {
         fun remaining() = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtMost(30_000).toInt()
         fun stopped() = cancelled() || Thread.currentThread().isInterrupted || remaining() <= 0
-        fun read(command: String): String? = if (stopped()) null else shell(command, remaining().coerceAtLeast(1))
+        fun read(command: String): String? {
+            if (stopped()) return null
+            return shell(command, remaining().coerceAtLeast(1))?.also {
+                if (Regex("permission denied|securityexception", RegexOption.IGNORE_CASE).containsMatchIn(it))
+                    throw SecurityException("Firmware denied hotspot control")
+            }
+        }
         fun observed(): Boolean? = state() ?: apState(read("dumpsys wifi"))
         if (stopped()) return false
-        val initial = observed() ?: return false // No blind mutation when no AP state can be observed.
+        // Hidden framework status may require ADB observation. Wait out an AP transition;
+        // never interpret ENABLING/DISABLING as permission to send another start.
+        var initial = state()
+        if (initial == null) {
+            while (!stopped()) {
+                val dump = read("dumpsys wifi")
+                if (!apTransitioning(dump)) { initial = apState(dump); break }
+                Thread.sleep(minOf(250, remaining().coerceAtLeast(1)).toLong())
+            }
+        }
+        if (initial == null) return false // No blind mutation when no AP state can be observed.
         if (stopped()) return false
         if (initial) return true
         var command: String? = null
@@ -25,7 +41,8 @@ internal object CarHotspotAdbFallback {
         }
         if (command == null || stopped()) return false
         val output = read("$command 2>&1; printf '\\n$EXIT%s\\n' \"\$?\"")
-        if (!accepted(output) || stopped()) return false
+        if (stopped()) return false
+        if (!accepted(output)) throw IllegalStateException("Firmware rejected hotspot start")
         log("car hotspot: firmware ADB start request accepted; waiting for AP enabled state")
         while (!stopped()) {
             if (observed() == true && !stopped()) {
@@ -61,6 +78,10 @@ internal object CarHotspotAdbFallback {
     private fun rejected(output: String): Boolean = Regex(
         "unknown command|permission denied|securityexception|(?:^|\\n)\\s*error:|failed|can't find service|not found|not supported|unsupported",
         RegexOption.IGNORE_CASE).containsMatchIn(output)
+
+    internal fun apTransitioning(dump: String?): Boolean = dump != null &&
+        Regex("(?m)^\\s*(?:mWifiApState|mSoftApState|mTetheredSoftApState)\\s*[:=]\\s*(10|12)\\s*$")
+            .containsMatchIn(dump)
 
     /** Read current AP fields only, never a past log, station Wi-Fi state or an interface address. */
     internal fun apState(dump: String?): Boolean? {
@@ -102,7 +123,12 @@ internal object CarHotspotAdbFallback {
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-        } catch (_: java.util.concurrent.ExecutionException) { }
+        } catch (error: java.util.concurrent.ExecutionException) {
+            when (val cause = error.cause) {
+                is SecurityException -> throw cause
+                is IllegalStateException -> throw cause
+            }
+        }
         finally {
             if (!task.isDone) { abort(); task.cancel(true) }
         }
