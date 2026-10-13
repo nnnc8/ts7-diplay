@@ -20,6 +20,9 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
       - name: Install upstream Android toolchain
         run: |
           sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;25.2.9519653'
@@ -28,7 +31,7 @@ jobs:
           bash ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest \
             :mobile:lintDebug :home:lintDebug :maphost:lintDebug \
             :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug \
-            :mobile:assembleDebugAndroidTest --max-workers=2 -I scripts/test-jvm.gradle
+            :mobile:assembleDebugAndroidTest --continue --max-workers=2 -I scripts/test-jvm.gradle
       - name: Enable KVM for stock API27 emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
