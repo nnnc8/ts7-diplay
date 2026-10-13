@@ -187,8 +187,6 @@ class DiPlayActivity : ComponentActivity() {
     private var pausedForAdbSwitchChange = false
     private var updatingAdbSwitches = false
     private val adbSwitches = mutableMapOf<Int, Pair<Switch, () -> Boolean>>()
-    private var hotspotStartupResult: CarHotspotTethering.Result? = null
-    @Volatile private var startupHotspotCancelled = false
     @Volatile private var vehicleProbeGeneration = 0
     @Volatile private var vehicleValidationGeneration = 0
     private val vehicleOperationLock = Any()
@@ -398,13 +396,13 @@ class DiPlayActivity : ComponentActivity() {
     override fun onStop() {
         cancelUsbPermissionSetup()
         clusterSafeAreaDialog?.dismiss()
-        startupHotspotCancelled = true
         super.onStop()
         if (!isFinishing && !isChangingConfigurations) CenterMapOverlay.scheduleShow()
     }
 
     override fun onResume() {
         super.onResume()
+        CarHotspotRecoveryService.sync(this)
         // Returning from another activity can bring the head unit's own density back.
         if (enforceInterfaceSize()) render()
         if (Build.VERSION.SDK_INT < 33 && AppLocale.preference(this) != languagePreferenceAtCreate) {
@@ -423,7 +421,6 @@ class DiPlayActivity : ComponentActivity() {
         }
         if (initialLaunch) {
             initialLaunch = false
-            startCarHotspotOnLaunch()
             if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(DiPlayPreferences.autoConnectWireless(this)) }
@@ -676,7 +673,7 @@ class DiPlayActivity : ComponentActivity() {
             else -> getString(R.string.hotspot_hint_p2p)
         }
         card.addView(label(connectionHint, 15, MUTED).apply { setPadding(0, dp(14), 0, 0) })
-        val startupProblem = hotspotStartupResult?.takeIf {
+        val startupProblem = CarHotspotRecoveryService.latestResult(this)?.takeIf {
             it != CarHotspotTethering.Result.READY && it != CarHotspotTethering.Result.CANCELLED &&
                 CarHotspotSettings.shouldEnable(this, true, AirPlayPersistence.loadWirelessHotspotMode(this)) &&
                 com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this) != true
@@ -1762,9 +1759,21 @@ class DiPlayActivity : ComponentActivity() {
             !(CarHotspotSettings.enabled(this) && CarHotspotTethering.permitted(this))
 
     private fun bydAdbSettings(parent: LinearLayout) {
-        if (AirPlayPersistence.loadWirelessHotspotMode(this) != WirelessHotspotMode.MANUAL) return
+        if (!CarHotspotSettings.visible(AirPlayPersistence.loadWirelessHotspotMode(this))) return
         if (!CarHotspotSetup.isBydHeadUnit(this)) {
-            Log.i("DiPlay-Hotspot", "settings hidden: BYD head unit not detected")
+            // The built-in hotspot is independent of BYD vehicle integrations and ADB availability.
+            section(parent, getString(R.string.built_in_car_hotspot), R.drawable.ic_dp_permissions) { card ->
+                toggle(card, getString(R.string.auto_car_hotspot_title), getString(R.string.settings_car_hotspot_recovery_description),
+                    CarHotspotSettings.enabled(this)) {
+                    CarHotspotSettings.setEnabled(this, it)
+                    CarHotspotRecoveryService.sync(this)
+                }
+                if (Build.VERSION.SDK_INT >= 23 && !CarHotspotTethering.permitted(this)) {
+                    card.addView(button(getString(R.string.app_permissions), false) {
+                        openSystem(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
+                    }, matchButton(8, 54))
+                }
+            }
             return
         }
         if (searchIndexSink != null) {
@@ -1817,8 +1826,9 @@ class DiPlayActivity : ComponentActivity() {
                         }
                     }) {
                     CarHotspotSettings.setEnabled(this, it)
-                    if (!it) startupHotspotCancelled = true
+                    CarHotspotRecoveryService.sync(this)
                 }
+                card.addView(label(getString(R.string.settings_car_hotspot_recovery_description), 14, MUTED))
             }
             adbStatus = label(getString(if (access == LocalAdb.Access.READY)
                 R.string.adb_access_ready else R.string.adb_not_approved), 14, MUTED).also(card::addView)
@@ -1897,25 +1907,6 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun vehicleAdbWorkInProgress(): Boolean =
         adbCheckInProgress || vehicleProbeAuthorizationInProgress || vehicleProbeInProgress
-
-    private fun startCarHotspotOnLaunch() {
-        if (!startupHotspotEligible()) return
-        val app = applicationContext
-        Thread({
-            val result = CarHotspotTethering.enable(app,
-                isCancelled = { startupHotspotCancelled || !startupHotspotEligible() },
-                log = { Log.i("DiPlay-Hotspot", it) },
-            )
-            runOnUiThread {
-                if (isFinishing || isDestroyed || result == CarHotspotTethering.Result.CANCELLED) return@runOnUiThread
-                hotspotStartupResult = result
-                if (page == "home") render()
-            }
-        }, "diplay-hotspot-startup").start()
-    }
-
-    private fun startupHotspotEligible(): Boolean =
-        CarHotspotSetup.shouldStartOnLaunch(applicationContext, CarPlayBackgroundSession.hasSession())
 
     private fun hotspotResultText(result: CarHotspotTethering.Result): String = getString(when (result) {
         CarHotspotTethering.Result.READY -> R.string.hotspot_control_on
@@ -2026,7 +2017,7 @@ class DiPlayActivity : ComponentActivity() {
             }, matchButton(12, 60))
             parent.addView(label(if (pendingCarHotspotSetup) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
             val join = hotspotJoinControls ?: HotspotJoinControls(this,
-                { CarPlayBackgroundSession.hasSession() }, beforeAction = { startupHotspotCancelled = true },
+                { CarPlayBackgroundSession.hasSession() },
                 labelFactory = { label(it, 15, MUTED) }, buttonFactory = { title, click -> button(title, false, click) })
                 .also { hotspotJoinControls = it }
             parent.addView(join.build())
@@ -3475,7 +3466,6 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun applyWirelessLink(mode: WirelessHotspotMode) {
-        startupHotspotCancelled = true
         AirPlayPersistence.saveWirelessHotspotMode(this, mode)
         render()
         toast(getString(R.string.saved_for_your_next_connection))
@@ -3835,7 +3825,6 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun connect(wireless: Boolean) {
-        startupHotspotCancelled = true
         if (wireless && pendingCarHotspotSetup) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
         if (setupError != null) { toast(setupError!!); return }
         if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&

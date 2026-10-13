@@ -722,4 +722,5 @@
     <string name="report_usb_copy_paths">其他儲存位置：\n%1$s</string>
     <string name="settings_harman_fullscreen_experimental">Harman 車機全螢幕（實驗性）</string>
     <string name="settings_harman_fullscreen_experimental_description">讓 CarPlay 佔用受支援 Harman 車機的原廠側欄區域。下次開啟 CarPlay 視窗時生效；其他韌體可能顯示異常。</string>
+    <string name="settings_car_hotspot_recovery_description">DiPlay 開啟或車機喚醒後，等待飛航模式解除，再恢復原有系統熱點。保留名稱、密碼及安全設定。啟用期間會顯示背景通知。需要韌體允許的權限或已授權的 ADB；僅有修改系統設定權限不一定足夠。</string>
 </resources>

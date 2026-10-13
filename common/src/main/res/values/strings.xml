@@ -761,4 +761,5 @@
     <string name="report_usb_copy_paths">Additional copies:\n%1$s</string>
     <string name="settings_harman_fullscreen_experimental">Harman head-unit full screen (experimental)</string>
     <string name="settings_harman_fullscreen_experimental_description">Let CarPlay occupy the OEM side-panel area on supported Harman head units. Applies when the CarPlay window next opens; other firmware may display incorrectly.</string>
+    <string name="settings_car_hotspot_recovery_description">Restores the saved system hotspot when DiPlay opens and after wake, once airplane mode is off. Keeps its name, password and security settings. Shows a background notification while enabled. Requires firmware-supported permissions or previously authorized ADB; system settings access alone may be insufficient.</string>
 </resources>

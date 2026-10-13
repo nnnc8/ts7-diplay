@@ -657,4 +657,5 @@
     <string name="settings_car_bluetooth_mac_invalid">Introduce una dirección MAC hexadecimal válida de 12 dígitos.</string>
     <string name="settings_harman_fullscreen_experimental">Pantalla completa Harman (experimental)</string>
     <string name="settings_harman_fullscreen_experimental_description">Permite que CarPlay ocupe el panel lateral original en unidades Harman compatibles. Se aplica al abrir de nuevo la ventana de CarPlay; otros firmwares podrían mostrarse incorrectamente.</string>
+    <string name="settings_car_hotspot_recovery_description">Restaura el punto de acceso guardado al abrir DiPlay y tras despertar, cuando se desactiva el modo avión. Conserva el nombre, la contraseña y la seguridad. Muestra una notificación en segundo plano mientras está activado. Requiere permisos admitidos por el firmware o ADB previamente autorizado; el acceso a ajustes del sistema puede no bastar.</string>
 </resources>

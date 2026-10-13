@@ -12,7 +12,9 @@ object CarHotspotSettings {
     fun setEnabled(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean("auto_enable", enabled).apply()
 
-    // Visibility is independent of the saved choice: ADB is only needed to grant permission.
+    fun visible(mode: WirelessHotspotMode): Boolean = mode == WirelessHotspotMode.MANUAL
+
+    // Preserve BYD's existing ADB authorization card; generic visibility is mode-only above.
     fun visible(bydAvailable: Boolean, access: LocalAdb.Access): Boolean =
         bydAvailable && (access == LocalAdb.Access.READY || access == LocalAdb.Access.NOT_APPROVED)
 
