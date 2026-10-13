@@ -24,7 +24,9 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en", manifest = Config.NONE, shadows = [CarHotspotAdbProbeTest.Setup::class])
+// API27 is the target head-unit OS and keeps this controlled singleton shadow
+// separate from the API29 search-card shadow cached on the Kotlin object.
+@Config(sdk = [27], qualifiers = "en", manifest = Config.NONE, shadows = [CarHotspotAdbProbeTest.Setup::class])
 class CarHotspotAdbProbeTest {
     private lateinit var activity: DiPlayActivity
     @Before fun setUp() {
