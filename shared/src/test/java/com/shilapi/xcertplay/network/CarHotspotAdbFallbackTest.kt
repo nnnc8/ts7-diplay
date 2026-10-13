@@ -122,4 +122,33 @@ class CarHotspotAdbFallbackTest {
         cancellation.join(1_000)
         assertTrue(aborted.get())
     }
+
+    @Test fun hiddenApTransitionWaitsWithoutAnotherStart() {
+        var reads = 0
+        val commands = mutableListOf<String>()
+        assertTrue(CarHotspotAdbFallback.start(deadline(), { false }, { null }, { command, _ ->
+            commands += command
+            if (command == "dumpsys wifi") "mWifiApState: ${if (++reads == 1) 12 else 13}"
+            else throw AssertionError("No start while AP is already enabling")
+        }, {}))
+        assertTrue(commands.all { it == "dumpsys wifi" })
+    }
+
+    @Test fun adbPermissionDenialPropagatesThroughBoundedIo() {
+        try {
+            CarHotspotAdbFallback.bounded(deadline(), { false }, {}) {
+                CarHotspotAdbFallback.start(deadline(), { false }, { false }, { _, _ -> "Permission denied" }, {})
+            }
+            fail("Permission denial must not look like unsupported firmware")
+        } catch (_: SecurityException) { }
+    }
+
+    @Test fun anAdvertisedStartWhichFailsIsNotFirmwareUnsupported() {
+        try {
+            CarHotspotAdbFallback.start(deadline(), { false }, { false }, { command, _ ->
+                if (command.endsWith("help")) "  start-tethering wifi" else "DIPLAY_HOTSPOT_EXIT:1"
+            }, {})
+            fail("Expected rejected start")
+        } catch (_: IllegalStateException) { }
+    }
 }
