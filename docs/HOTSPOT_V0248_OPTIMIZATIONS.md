@@ -22,6 +22,8 @@ requested optimizations; it adds no settings or protocol features.
    Cancel/close abort original and probe sockets and prevent further probes.
 9. Stateless hotspot status/result policies live in `CarHotspotUiSupport`. Existing
    categories, sections, resource IDs and search indexing remain in the Activity.
+   The existing search UI test waits for the probe Future rather than the lifetime
+   of its reused thread; its single-probe, category and control assertions remain.
 10. Sync supports ordered `PATCH_COMMITS` while retaining full-range default and `-x`.
     Both CI workflows cache the pinned SDK/NDK. The 15 checksum sidecars are archived
     unchanged after checking scripts, workflows and test path dependencies.

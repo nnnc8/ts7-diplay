@@ -121,9 +121,10 @@ class AdaptiveSettingsUiTest {
         ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSearchResult",
             ReflectionHelpers.ClassParameter(result.javaClass, result))
         assertTrue(HotspotSearchProbe.entered.await(3, TimeUnit.SECONDS))
-        val worker = HotspotSearchProbe.workers.single()
-        worker.join(3_000)
-        assertFalse(worker.isAlive)
+        assertEquals(1, HotspotSearchProbe.workers.size)
+        val probe = ReflectionHelpers.getField<java.util.concurrent.Future<*>>(screen, "hotspotAdbCheck")
+        probe.get(3, TimeUnit.SECONDS)
+        assertTrue(probe.isDone)
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(SettingsCategory.CONNECTION,
