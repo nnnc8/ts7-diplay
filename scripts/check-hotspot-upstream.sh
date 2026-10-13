@@ -11,7 +11,17 @@ if [[ "$requested_tag" == latest ]]; then
 fi
 [[ "$requested_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid release tag.' >&2; exit 1; }
 git merge-base --is-ancestor "$base" "$patch_ref"
-mapfile -t patches < <(git rev-list --reverse "$base..$patch_ref")
+patches=()
+if [[ "${PATCH_COMMITS+x}" == x ]]; then
+  # Explicit whitespace-separated commit IDs, in caller-specified dependency order.
+  read -r -a patches <<< "${PATCH_COMMITS//$'\n'/ }"
+  for patch in "${patches[@]}"; do
+    git rev-parse --verify "$patch^{commit}" >/dev/null
+    git merge-base --is-ancestor "$patch" "$patch_ref"
+  done
+else
+  while IFS= read -r patch; do patches+=("$patch"); done < <(git rev-list --reverse "$base..$patch_ref")
+fi
 test "${#patches[@]}" -gt 0
 branch="hotspot-sync/${requested_tag}-$(date -u +%Y%m%d%H%M%S)"
 git switch -c "$branch" "$requested_tag^{commit}"

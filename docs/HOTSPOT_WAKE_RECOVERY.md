@@ -27,6 +27,22 @@ existing tethering mutex serializes recovery with connection startup, rechecks A
 state after acquiring the lock, and waits if AP is already enabling/disabling.
 An established CarPlay session suppresses recovery and cancels pending attempts.
 
+After a completed failed cycle, an airplane-off broadcast can start a fresh bounded
+generation. A tethered AP-disabled broadcast while awake, out of airplane mode and
+without a live session can also start one, with a 10-second cooldown from completion.
+An active worker still absorbs all duplicate signals; screen-on/resume alone never
+restarts a completed cycle. Pending manual setup and invalid configured credentials
+block recovery. Valid saved credentials (including open APs) remain eligible; the
+legacy empty-default SSID remains compatible. Draft setup is persisted separately
+and never changes the car's saved hotspot configuration.
+
+Framework reflection and dump-parser regexes are cached. The bounded ADB fallback
+uses shared daemon workers, a cancellation watcher only during active I/O, and
+500ms dump polling. ADB approval checks default to two seconds and cancellation
+closes both the original connection and any quiet approval probe. Settings probes
+share one in-flight check, ignore results predating authorization, and wait while
+vehicle/ADB authorization is active. Settings categories and translations are unchanged.
+
 Each launch/wake has a 60-second elapsed-time limit, at most three 8-second start
 attempts, and at least five seconds between attempts. Airplane mode must be off
 and the station radio stable for three seconds. Every radio/airplane event
@@ -115,3 +131,16 @@ an APK. Inspect a conflicted disposable branch before `git cherry-pick --abort`.
 The workflow performs the same disposable check and uploads reports; its weekly
 schedule is active only once that workflow exists on the fork's default branch.
 Keeping main unchanged means no scheduled job is silently installed there.
+
+For an explicit ordered runtime/test selection, set `PATCH_COMMITS` to whitespace-
+separated commit IDs. Each must belong to `PATCH_REF`. Omitting it preserves the
+full `base..PATCH_REF` range and `-x` provenance. For example:
+
+```sh
+PATCH_COMMITS='f95316e 486b60a' bash scripts/check-hotspot-upstream.sh latest
+```
+
+The example selects only the original runtime/test commits; add later fixes and
+their dependencies when validating the optimized patch. Empty/invalid explicit
+selections fail before switching branches. CI caches the pinned SDK/build-tools/NDK,
+then still runs `sdkmanager` to validate/install missing packages.

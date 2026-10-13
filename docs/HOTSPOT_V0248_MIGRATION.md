@@ -2,6 +2,11 @@
 
 This is a version port, with no new runtime features.
 
+This record describes the original port through `a1e08fd`. Subsequent explicitly
+requested recovery/ADB/UI/CI optimizations are recorded in
+[the follow-up record](HOTSPOT_V0248_OPTIMIZATIONS.md); its runtime is intentionally
+different from the port-only v0.2.46-equivalent baseline.
+
 ## Source and preserved history
 
 - Upstream: `programmerguohuajing/DiPlay-Legacy-Android`.

@@ -30,6 +30,14 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
+      - name: Cache upstream Android toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/platforms/android-37.0
+            ${{ env.ANDROID_HOME }}/build-tools/37.0.0
+            ${{ env.ANDROID_HOME }}/ndk/25.2.9519653
+          key: android-${{ runner.os }}-${{ runner.arch }}-37.0-37.0.0-25.2.9519653
       - name: Toolchain and disposable branch author
         run: |
           sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;25.2.9519653'
