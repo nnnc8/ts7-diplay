@@ -20,15 +20,14 @@ import java.util.concurrent.locks.ReentrantLock
 object CarHotspotTethering {
     private val startupLock = ReentrantLock()
     private val connectivityServiceField by lazy {
-        runCatching { ConnectivityManager::class.java.getDeclaredField("mService").apply { isAccessible = true } }.getOrNull()
+        runCatching { ConnectivityManager::class.java.getDeclaredField("mService").apply { isAccessible = true } }
     }
-    private val startMethods = mutableMapOf<Class<*>, Method?>()
+    private val startMethods = mutableMapOf<Class<*>, kotlin.Result<Method>>()
     private fun startTetheringMethod(type: Class<*>): Method = synchronized(startMethods) {
-        if (!startMethods.containsKey(type)) {
-            startMethods[type] = runCatching { type.getMethod("startTethering", Int::class.javaPrimitiveType,
-                ResultReceiver::class.java, Boolean::class.javaPrimitiveType, String::class.java) }.getOrNull()
-        }
-        startMethods[type] ?: throw NoSuchMethodException("Hidden tethering start is unavailable")
+        startMethods.getOrPut(type) {
+            runCatching { type.getMethod("startTethering", Int::class.javaPrimitiveType,
+                ResultReceiver::class.java, Boolean::class.javaPrimitiveType, String::class.java) }
+        }.getOrThrow() // Cache failures too, preserving permission-denial vs unavailable semantics.
     }
     enum class Result(val diagnostic: String) {
         READY("Car hotspot is on"),
@@ -61,7 +60,10 @@ object CarHotspotTethering {
                 @Suppress("DEPRECATION")
                 context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             }
-            val service = (connectivityServiceField ?: throw NoSuchMethodException("Connectivity service field unavailable"))
+            val service = connectivityServiceField.getOrElse { error ->
+                if (error is NoSuchFieldException) throw NoSuchMethodException("Connectivity service field unavailable")
+                throw error
+            }
                 .get(conn)
                 ?: throw NoSuchMethodException("Connectivity service unavailable")
             startTetheringMethod(service.javaClass).invoke(service, 0, receiver, false, context.packageName)
