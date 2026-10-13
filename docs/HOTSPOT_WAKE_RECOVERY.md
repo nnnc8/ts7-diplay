@@ -1,7 +1,10 @@
 # Existing system hotspot recovery
 
-Base: v0.2.46, annotated tag object `745ffdf1bfad2c04c7fba01c4e3046885aafc4c0`,
-peeled source commit `e02081c7dede11542dcb735971dce25206ee8e7e`.
+Base: v0.2.48, exact upstream source commit
+`72dbc164114c9fa16f2c7fb77f36ecd5d48aa25d`.
+The original `feature/ts7-hotspot-wake-v0246` branch remains at
+`1d7f8c2e5e3f80fa1c901ffab2f5ad05ac92fbb4`; none of its commits were rewritten.
+See [the version migration record](HOTSPOT_V0248_MIGRATION.md).
 
 Only the saved **Built-in car hotspot / MANUAL** path is affected. The existing
 auto-hotspot preference defaults off. Non-BYD units can enable it without being
@@ -85,6 +88,15 @@ Collect `adb logcat -s DiPlay-Hotspot` and current AP state from `dumpsys wifi`.
 Check that the saved hotspot name/password/security are unchanged. Do not replace
 the known-working official installation with a differently signed source build.
 Ordinary builds have no accessory identity and are not a complete CarPlay release.
+
+The v0.2.48 CI artifact `ts7-hotspot-diagnostic-v0248` contains an identity-free
+debug APK named `ts7-hotspot-diagnostic-v0.2.48.apk`. It uses the upstream debug
+application ID `com.shihab.diplay.hudtest` (launcher label **DiPlay HUD Test**),
+not the official `com.shihab.diplay`. CI verifies the package/version and absence
+of authentication assets before uploading it. It can coexist with official DiPlay;
+it updates an existing HUD Test app only if that app has the same signing key.
+Keep the official app's auto-hotspot option off while testing this diagnostic app
+so that two observers do not compete for the same system hotspot.
 
 ## Upstream maintenance
 

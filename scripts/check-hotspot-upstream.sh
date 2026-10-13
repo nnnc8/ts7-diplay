@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Creates a disposable test branch; never merges, signs or publishes an APK.
 set -euo pipefail
-base=e02081c7dede11542dcb735971dce25206ee8e7e
-patch_ref=${PATCH_REF:-feature/ts7-hotspot-wake-v0246}
+base=72dbc164114c9fa16f2c7fb77f36ecd5d48aa25d
+patch_ref=${PATCH_REF:-feature/ts7-hotspot-wake-v0248}
 requested_tag=${1:-latest}
 test -z "$(git status --porcelain)" || { echo 'A clean checkout is required.' >&2; exit 1; }
 git fetch https://github.com/programmerguohuajing/DiPlay-Legacy-Android.git 'refs/tags/*:refs/tags/*'
 if [[ "$requested_tag" == latest ]]; then
-  requested_tag=$(git tag --list --sort=-version:refname | rg '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+  requested_tag=$(git tag --list --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 fi
 [[ "$requested_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid release tag.' >&2; exit 1; }
 git merge-base --is-ancestor "$base" "$patch_ref"
@@ -15,7 +15,7 @@ mapfile -t patches < <(git rev-list --reverse "$base..$patch_ref")
 test "${#patches[@]}" -gt 0
 branch="hotspot-sync/${requested_tag}-$(date -u +%Y%m%d%H%M%S)"
 git switch -c "$branch" "$requested_tag^{commit}"
-if ! git cherry-pick "${patches[@]}"; then
+if ! git cherry-pick -x "${patches[@]}"; then
   echo 'MERGE_CONFLICT: inspect the disposable branch; the original branch is unchanged.' >&2
   git diff --name-only --diff-filter=U
   exit 2

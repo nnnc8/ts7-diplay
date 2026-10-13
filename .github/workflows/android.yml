@@ -1,7 +1,7 @@
 name: Android checks and API27 hotspot recovery
 on:
   push:
-    branches: ['feature/ts7-hotspot-wake-v0246', 'hotspot-sync/**']
+    branches: ['feature/ts7-hotspot-wake-v0246', 'feature/ts7-hotspot-wake-v0248', 'hotspot-sync/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -28,6 +28,9 @@ jobs:
           sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;25.2.9519653'
       - name: Required upstream checks (identity-free debug build)
         run: |
+          test -z "${DIPLAY_AUTH_ASSETS_DIR:-}"
+          test ! -d .private/runtime-assets
+          test ! -d auth-assets
           bash ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest \
             :mobile:lintDebug :home:lintDebug :maphost:lintDebug \
             :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug \
@@ -45,6 +48,25 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           script: bash scripts/test-hotspot-api27.sh
+      - name: Verify and package the TS7 diagnostic APK
+        run: |
+          mkdir -p diagnostic-apk
+          cp mobile/build/outputs/apk/debug/mobile-debug.apk diagnostic-apk/ts7-hotspot-diagnostic-v0.2.48.apk
+          "$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging diagnostic-apk/ts7-hotspot-diagnostic-v0.2.48.apk > diagnostic-apk/apk-badging.txt
+          grep -Fq "package: name='com.shihab.diplay.hudtest' versionCode='68' versionName='0.2.48-hud-test'" diagnostic-apk/apk-badging.txt
+          grep -Fxq "sdkVersion:'19'" diagnostic-apk/apk-badging.txt
+          unzip -Z1 diagnostic-apk/ts7-hotspot-diagnostic-v0.2.48.apk > diagnostic-apk/apk-entries.txt
+          if grep -Ei '(^assets/offline-mfi/|\.(pk8|p7b|key|pem|p12|pfx|jks|keystore)$)' diagnostic-apk/apk-entries.txt; then
+            echo 'Diagnostic APK must contain no authentication credentials.' >&2
+            exit 1
+          fi
+          git rev-parse HEAD > diagnostic-apk/source-sha.txt
+          (cd diagnostic-apk && sha256sum ts7-hotspot-diagnostic-v0.2.48.apk > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ts7-hotspot-diagnostic-v0248
+          path: diagnostic-apk/
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
