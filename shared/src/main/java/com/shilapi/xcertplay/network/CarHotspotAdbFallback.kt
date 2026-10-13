@@ -1,12 +1,32 @@
 package com.shilapi.xcertplay.network
 
-import java.util.concurrent.FutureTask
+import java.util.concurrent.CancellationException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
 /** Uses only a firmware-advertised command for the saved hotspot; never configures a replacement AP. */
 internal object CarHotspotAdbFallback {
     private const val EXIT = "DIPLAY_HOTSPOT_EXIT:"
+    private const val ADB_POLL_INTERVAL_MS = 500L
+    private val permissionDenied = Regex("permission denied|securityexception", RegexOption.IGNORE_CASE)
+    private val advertisedForm = Regex("^\\s*(start-tethering|start)\\s+(wifi|[<\\[(][^>\\])]*\\bwifi\\b[^>\\])]*[>\\])])(?:\\s*\\[[^\\n]*])?\\s*$")
+    private val exitCode = Regex("(?m)^$EXIT(\\d+)\\s*$")
+    private val rejectedOutput = Regex(
+        "unknown command|permission denied|securityexception|(?:^|\\n)\\s*error:|failed|can't find service|not found|not supported|unsupported",
+        RegexOption.IGNORE_CASE)
+    private val transitioningState = Regex("(?m)^\\s*(?:mWifiApState|mSoftApState|mTetheredSoftApState)\\s*[:=]\\s*(10|12)\\s*$")
+    private val managerHeader = Regex("(?m)^\\s*(?:--)?Dump of SoftApManager(?:--| id=\\S+)?\\s*$")
+    private val numericState = Regex("(?m)^\\s*(?:mWifiApState|mSoftApState|mTetheredSoftApState)\\s*[:=]\\s*(\\d+)\\s*$")
+    private val managerMode = Regex("(?m)^\\s*(?:mMode|mOriginalModeConfiguration\\.targetMode):\\s*(\\d+)\\s*$")
+    private val machineState = Regex("(?m)^\\s*current StateMachine mode:\\s*(\\w+)\\s*$")
+    private val interfaceUp = Regex("(?m)^\\s*mIfaceIsUp:\\s*(true|false)\\s*$")
+    private val workers = Executors.newCachedThreadPool { action ->
+        Thread(action, "diplay-hotspot-adb").apply { isDaemon = true }
+    }
+    private val cancellationWatcher = Executors.newSingleThreadScheduledExecutor { action ->
+        Thread(action, "diplay-hotspot-adb-cancel").apply { isDaemon = true }
+    }
 
     fun start(deadline: Long, cancelled: () -> Boolean, state: () -> Boolean?,
         shell: (String, Int) -> String?, log: (String) -> Unit): Boolean {
@@ -15,7 +35,7 @@ internal object CarHotspotAdbFallback {
         fun read(command: String): String? {
             if (stopped()) return null
             return shell(command, remaining().coerceAtLeast(1))?.also {
-                if (Regex("permission denied|securityexception", RegexOption.IGNORE_CASE).containsMatchIn(it))
+                if (permissionDenied.containsMatchIn(it))
                     throw SecurityException("Firmware denied hotspot control")
             }
         }
@@ -28,7 +48,7 @@ internal object CarHotspotAdbFallback {
             while (!stopped()) {
                 val dump = read("dumpsys wifi")
                 if (!apTransitioning(dump)) { initial = apState(dump); break }
-                Thread.sleep(minOf(250, remaining().coerceAtLeast(1)).toLong())
+                Thread.sleep(minOf(ADB_POLL_INTERVAL_MS, remaining().coerceAtLeast(1).toLong()))
             }
         }
         if (initial == null) return false // No blind mutation when no AP state can be observed.
@@ -50,7 +70,7 @@ internal object CarHotspotAdbFallback {
                 return true
             }
             try {
-                Thread.sleep(minOf(250, remaining().coerceAtLeast(1)).toLong())
+                Thread.sleep(minOf(ADB_POLL_INTERVAL_MS, remaining().coerceAtLeast(1).toLong()))
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return false
@@ -63,8 +83,7 @@ internal object CarHotspotAdbFallback {
     internal fun advertisedCommand(service: String, help: String?): String? {
         if (service !in listOf("connectivity", "tethering") || help == null || rejected(help)) return null
         for (line in help.lineSequence()) {
-            val form = Regex("^\\s*(start-tethering|start)\\s+(wifi|[<\\[(][^>\\])]*\\bwifi\\b[^>\\])]*[>\\])])(?:\\s*\\[[^\\n]*])?\\s*$")
-                .matchEntire(line) ?: continue
+            val form = advertisedForm.matchEntire(line) ?: continue
             val verb = form.groupValues[1]
             if (service == "connectivity" && verb != "start-tethering") continue
             return "cmd $service $verb wifi"
@@ -73,32 +92,29 @@ internal object CarHotspotAdbFallback {
     }
 
     internal fun accepted(output: String?): Boolean = output != null && !rejected(output) &&
-        Regex("(?m)^$EXIT(\\d+)\\s*$").findAll(output).lastOrNull()?.groupValues?.get(1) == "0"
+        exitCode.findAll(output).lastOrNull()?.groupValues?.get(1) == "0"
 
-    private fun rejected(output: String): Boolean = Regex(
-        "unknown command|permission denied|securityexception|(?:^|\\n)\\s*error:|failed|can't find service|not found|not supported|unsupported",
-        RegexOption.IGNORE_CASE).containsMatchIn(output)
+    private fun rejected(output: String): Boolean = rejectedOutput.containsMatchIn(output)
 
     internal fun apTransitioning(dump: String?): Boolean = dump != null &&
-        Regex("(?m)^\\s*(?:mWifiApState|mSoftApState|mTetheredSoftApState)\\s*[:=]\\s*(10|12)\\s*$")
-            .containsMatchIn(dump)
+        transitioningState.containsMatchIn(dump)
 
     /** Read current AP fields only, never a past log, station Wi-Fi state or an interface address. */
     internal fun apState(dump: String?): Boolean? {
         if (dump == null) return null
-        val managers = dump.split(Regex("(?m)^\\s*(?:--)?Dump of SoftApManager(?:--| id=\\S+)?\\s*$")).drop(1)
+        val managers = dump.split(managerHeader).drop(1)
         if (managers.isEmpty()) {
-            val numeric = Regex("(?m)^\\s*(?:mWifiApState|mSoftApState|mTetheredSoftApState)\\s*[:=]\\s*(\\d+)\\s*$")
+            val numeric = numericState
                 .findAll(dump).map { CarHotspotStatus.stateEnabled(it.groupValues[1].toIntOrNull()) }.toList()
             return if (numeric.any { it == null }) null else numeric.distinct().singleOrNull()
         }
         val tethered = managers.filter { block ->
-            val mode = Regex("(?m)^\\s*(?:mMode|mOriginalModeConfiguration\\.targetMode):\\s*(\\d+)\\s*$").find(block)?.groupValues?.get(1)
+            val mode = managerMode.find(block)?.groupValues?.get(1)
             mode == "1"
         }
         val states = tethered.map { block ->
-            val current = Regex("(?m)^\\s*current StateMachine mode:\\s*(\\w+)\\s*$").find(block)?.groupValues?.get(1)
-            val up = Regex("(?m)^\\s*mIfaceIsUp:\\s*(true|false)\\s*$").find(block)?.groupValues?.get(1)
+            val current = machineState.find(block)?.groupValues?.get(1)
+            val up = interfaceUp.find(block)?.groupValues?.get(1)
             when {
                 current == "StartedState" && up == "true" -> true
                 current == "IdleState" && up == "false" -> false
@@ -111,16 +127,17 @@ internal object CarHotspotAdbFallback {
     /** Deadline includes connection, capability reads, writes and AP-state polling. Cancellation aborts I/O. */
     internal fun bounded(deadline: Long, cancelled: () -> Boolean, abort: () -> Unit, action: () -> Boolean): Boolean {
         if (cancelled() || Thread.currentThread().isInterrupted || System.nanoTime() >= deadline) return false
-        val task = FutureTask(action)
-        Thread(task, "diplay-hotspot-adb").apply { isDaemon = true; start() }
+        val task = workers.submit<Boolean> { action() }
+        // This watcher exists only during bounded I/O, never while the observer is asleep/idle.
+        val watcher = cancellationWatcher.scheduleWithFixedDelay({
+            if (cancelled()) task.cancel(true)
+        }, 0, 50, TimeUnit.MILLISECONDS)
         try {
-            while (!cancelled() && !Thread.currentThread().isInterrupted) {
-                val remaining = deadline - System.nanoTime()
-                if (remaining <= 0) return false
-                try {
-                    return task.get(minOf(remaining, TimeUnit.MILLISECONDS.toNanos(100)), TimeUnit.NANOSECONDS)
-                } catch (_: TimeoutException) { }
-            }
+            val remaining = deadline - System.nanoTime()
+            if (remaining <= 0) return false
+            return task.get(remaining, TimeUnit.NANOSECONDS) && !cancelled()
+        } catch (_: TimeoutException) {
+        } catch (_: CancellationException) {
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
         } catch (error: java.util.concurrent.ExecutionException) {
@@ -130,7 +147,10 @@ internal object CarHotspotAdbFallback {
             }
         }
         finally {
-            if (!task.isDone) { abort(); task.cancel(true) }
+            watcher.cancel(false)
+            if (!task.isDone || task.isCancelled) {
+                try { abort() } finally { task.cancel(true) }
+            }
         }
         return false
     }

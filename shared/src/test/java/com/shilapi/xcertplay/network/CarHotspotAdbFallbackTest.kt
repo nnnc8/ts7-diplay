@@ -123,6 +123,25 @@ class CarHotspotAdbFallbackTest {
         assertTrue(aborted.get())
     }
 
+    @Test fun anAbortFailureStillInterruptsThePooledIoWorker() {
+        val entered = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        try {
+            CarHotspotAdbFallback.bounded(deadline(200), { false }, { throw IllegalArgumentException("abort failed") }) {
+                assertTrue(Thread.currentThread().isDaemon)
+                assertEquals("diplay-hotspot-adb", Thread.currentThread().name)
+                entered.countDown()
+                try { release.await() } catch (_: InterruptedException) { interrupted.countDown() }
+                false
+            }
+            fail("Expected abort failure")
+        } catch (_: IllegalArgumentException) {
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            assertTrue(interrupted.await(1, TimeUnit.SECONDS))
+        } finally { release.countDown() }
+    }
+
     @Test fun hiddenApTransitionWaitsWithoutAnotherStart() {
         var reads = 0
         val commands = mutableListOf<String>()

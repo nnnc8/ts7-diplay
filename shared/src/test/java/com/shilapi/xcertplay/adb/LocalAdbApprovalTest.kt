@@ -53,15 +53,43 @@ class LocalAdbApprovalTest {
         }
     }
 
+    @Test fun cancellationDuringApprovalClosesWithoutAnotherQuietProbe() {
+        for (close in listOf(false, true)) ApprovalServer().use { server ->
+            val adb = LocalAdb(key, port = server.port, approvalRecheckMillis = 5_000)
+            val result = CompletableFuture.supplyAsync { adb.connect(mayAsk = true) }
+            assertTrue(server.keyOffered.await(3, TimeUnit.SECONDS))
+            if (close) adb.close() else adb.cancelPendingOperations()
+            assertEquals(LocalAdb.Access.UNREACHABLE, result.get(1, TimeUnit.SECONDS))
+            assertEquals(1L, server.quietCheck.count)
+            assertEquals(1, server.keyOffers.get())
+            adb.close()
+        }
+    }
+
+    @Test fun cancellationAlsoUnblocksAnInFlightQuietApprovalProbe() {
+        ApprovalServer(stallQuietProbe = true).use { server ->
+            val adb = LocalAdb(key, port = server.port, approvalRecheckMillis = 200)
+            val result = CompletableFuture.supplyAsync { adb.connect(mayAsk = true) }
+            assertTrue(server.keyOffered.await(3, TimeUnit.SECONDS))
+            assertTrue(server.quietCheck.await(3, TimeUnit.SECONDS))
+            adb.cancelPendingOperations()
+            assertEquals(LocalAdb.Access.UNREACHABLE, result.get(1, TimeUnit.SECONDS))
+            adb.close()
+            assertEquals(1, server.keyOffers.get())
+            assertNull(server.failure.get())
+        }
+    }
+
     private fun connectAndRun(server: ApprovalServer) = CompletableFuture.supplyAsync {
-        LocalAdb(key, port = server.port).use { adb ->
+        LocalAdb(key, port = server.port, approvalRecheckMillis = 200).use { adb ->
             assertEquals(LocalAdb.Access.READY, adb.connect(mayAsk = true))
             adb.shell("echo ok")
         }
     }
 
     // 模拟车机保存密钥，却不向首次授权的连接发送 CNXN。
-    private class ApprovalServer(private val fragmentReply: Boolean = false) : AutoCloseable {
+    private class ApprovalServer(private val fragmentReply: Boolean = false,
+        private val stallQuietProbe: Boolean = false) : AutoCloseable {
         private val server = ServerSocket(0)
         val port = server.localPort
         @Volatile var approved = false
@@ -96,6 +124,11 @@ class LocalAdbApprovalTest {
             val connected = AdbPacket(AdbPacket.CNXN, AdbPacket.VERSION, AdbPacket.MAX_PAYLOAD,
                 "device::\u0000".toByteArray())
             if (!approved) {
+                if (stallQuietProbe && keyOffers.get() > 0) {
+                    quietCheck.countDown()
+                    assertEquals(-1, input.read())
+                    return
+                }
                 send(AdbPacket(AdbPacket.AUTH, AdbPacket.AUTH_TOKEN, 0, ByteArray(20)))
                 val offer = runCatching { AdbPacket.read(input) }.getOrNull()
                 if (offer == null) {

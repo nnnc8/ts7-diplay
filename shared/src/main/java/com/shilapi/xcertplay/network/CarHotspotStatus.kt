@@ -14,11 +14,17 @@ object CarHotspotStatus {
     private const val ACTION_WIFI_AP_STATE_CHANGED = "android.net.wifi.WIFI_AP_STATE_CHANGED"
     private const val EXTRA_WIFI_AP_STATE = "wifi_state"
     private const val EXTRA_WIFI_AP_MODE = "wifi_ap_mode"
+    private val getWifiApStateMethod by lazy {
+        runCatching { WifiManager::class.java.getMethod("getWifiApState") }.getOrNull()
+    }
+    private val isWifiApEnabledMethod by lazy {
+        runCatching { WifiManager::class.java.getMethod("isWifiApEnabled") }.getOrNull()
+    }
 
     /** Do not issue a second start while the firmware is already enabling/disabling its AP. */
     fun isTransitioning(context: Context): Boolean = runCatching {
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        val state = wifi?.let { WifiManager::class.java.getMethod("getWifiApState").invoke(it) as? Int }
+        val state = wifi?.let { getWifiApStateMethod?.invoke(it) as? Int }
         state == 10 || state == 12
     }.getOrDefault(false)
 
@@ -36,8 +42,8 @@ object CarHotspotStatus {
             app.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         }
         return read(
-            state = { wifi?.let { WifiManager::class.java.getMethod("getWifiApState").invoke(it) as? Int } },
-            enabled = { wifi?.let { WifiManager::class.java.getMethod("isWifiApEnabled").invoke(it) as? Boolean } },
+            state = { wifi?.let { getWifiApStateMethod?.invoke(it) as? Int } },
+            enabled = { wifi?.let { isWifiApEnabledMethod?.invoke(it) as? Boolean } },
             sticky = { app.registerReceiver(null, IntentFilter(ACTION_WIFI_AP_STATE_CHANGED)) },
         )
     }

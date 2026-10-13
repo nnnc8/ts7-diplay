@@ -9,6 +9,7 @@ import android.provider.Settings
 import com.shilapi.xcertplay.adb.AdbKeys
 import com.shilapi.xcertplay.adb.LocalAdb
 import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
@@ -17,6 +18,18 @@ import java.util.concurrent.locks.ReentrantLock
 /** Uses the car's saved hotspot configuration. This never stops or reconfigures the hotspot. */
 object CarHotspotTethering {
     private val startupLock = ReentrantLock()
+    @android.annotation.SuppressLint("SoonBlockedPrivateApi")
+    private val connectivityServiceField by lazy {
+        runCatching { ConnectivityManager::class.java.getDeclaredField("mService").apply { isAccessible = true } }.getOrNull()
+    }
+    private val startMethods = mutableMapOf<Class<*>, Method?>()
+    private fun startTetheringMethod(type: Class<*>): Method = synchronized(startMethods) {
+        if (!startMethods.containsKey(type)) {
+            startMethods[type] = runCatching { type.getMethod("startTethering", Int::class.javaPrimitiveType,
+                ResultReceiver::class.java, Boolean::class.javaPrimitiveType, String::class.java) }.getOrNull()
+        }
+        startMethods[type] ?: throw NoSuchMethodException("Hidden tethering start is unavailable")
+    }
     enum class Result(val diagnostic: String) {
         READY("Car hotspot is on"),
         PERMISSION_REQUIRED("Hotspot control permission is missing"),
@@ -48,14 +61,10 @@ object CarHotspotTethering {
                 @Suppress("DEPRECATION")
                 context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             }
-            val service = ConnectivityManager::class.java.getDeclaredField("mService")
-                .apply { isAccessible = true }
+            val service = (connectivityServiceField ?: throw NoSuchMethodException("Connectivity service field unavailable"))
                 .get(conn)
                 ?: throw NoSuchMethodException("Connectivity service unavailable")
-            service.javaClass.getMethod(
-                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                Boolean::class.javaPrimitiveType, String::class.java,
-            ).invoke(service, 0, receiver, false, context.packageName)
+            startTetheringMethod(service.javaClass).invoke(service, 0, receiver, false, context.packageName)
         }
         val startAdb: () -> Boolean = {
             val client = AtomicReference<LocalAdb?>()

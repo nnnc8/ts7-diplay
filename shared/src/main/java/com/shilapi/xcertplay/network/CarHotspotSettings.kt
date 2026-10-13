@@ -9,6 +9,11 @@ object CarHotspotSettings {
 
     fun enabled(context: Context): Boolean = prefs(context).getBoolean("auto_enable", false)
 
+    fun setupPending(context: Context): Boolean = prefs(context).getBoolean("pending_car_hotspot", false)
+
+    fun setSetupPending(context: Context, pending: Boolean) =
+        prefs(context).edit().putBoolean("pending_car_hotspot", pending).apply()
+
     fun setEnabled(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean("auto_enable", enabled).apply()
 

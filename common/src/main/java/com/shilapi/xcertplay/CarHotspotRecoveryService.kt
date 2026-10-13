@@ -23,6 +23,7 @@ import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.network.CarHotspotStatus
 import com.shilapi.xcertplay.network.CarHotspotTethering
 import com.shilapi.xcertplay.network.CarHotspotWakeRecovery
+import com.shilapi.xcertplay.orchestration.ManualHotspotValidation
 import java.util.concurrent.Future
 import java.util.concurrent.ScheduledThreadPoolExecutor
 
@@ -34,8 +35,11 @@ class CarHotspotRecoveryService : Service() {
     @Volatile private var destroyed = false
     private var awake = false
     private var task: Future<*>? = null
-    private val preferencesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        if (!eligible(this)) stopSelf()
+    @Volatile private var lastOutcome: CarHotspotWakeRecovery.Outcome? = null
+    @Volatile private var lastCompletedAt = 0L
+    private lateinit var notification: Notification
+    private val preferencesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if ((key == null || key in ELIGIBILITY_KEYS) && !eligible(this)) stopSelf()
     }
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -46,7 +50,7 @@ class CarHotspotRecoveryService : Service() {
                 "android.net.wifi.WIFI_AP_STATE_CHANGED" -> {
                     // AP events are observations, not changes in station-radio readiness.
                     if (intent.action != "android.net.wifi.WIFI_AP_STATE_CHANGED") radioRevision++
-                    observe()
+                    observe(intent)
                 }
             }
         }
@@ -54,6 +58,7 @@ class CarHotspotRecoveryService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        notification = createNotification()
         getSharedPreferences("diplay_car_hotspot", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(preferencesChanged)
         getSharedPreferences("xcertplay_airplay", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(preferencesChanged)
         val filter = IntentFilter().apply {
@@ -72,7 +77,7 @@ class CarHotspotRecoveryService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    private fun createNotification(): Notification {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
             NotificationChannel(CHANNEL, getString(R.string.auto_car_hotspot_title), NotificationManager.IMPORTANCE_LOW))
@@ -81,10 +86,13 @@ class CarHotspotRecoveryService : Service() {
             if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
             else @Suppress("DEPRECATION") Notification.Builder(this)
-        val notification = builder.setSmallIcon(if (Build.VERSION.SDK_INT >= 21)
+        return builder.setSmallIcon(if (Build.VERSION.SDK_INT >= 21)
             R.drawable.ic_diplay_notification else R.drawable.ic_carplay)
             .setContentTitle(getString(R.string.auto_car_hotspot_title)).setContentIntent(open)
             .setContentText(getString(R.string.built_in_car_hotspot)).setOngoing(true).build()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         else startForeground(NOTIFICATION_ID, notification)
@@ -106,11 +114,26 @@ class CarHotspotRecoveryService : Service() {
         task = null
     }
 
-    private fun observe() {
+    private fun airplaneModeOn(): Boolean =
+        Settings.Global.getInt(contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
+
+    private fun observe(signal: Intent? = null) {
         if (!eligible(this)) { stopSelf(); return }
         if (!interactive()) { if (awake || task != null) sleep(); return }
-        if (awake) return // Includes repeated screen-on and Activity resume after this cycle ended.
+        if (task?.isDone == false) return
+        if (awake) {
+            // Only targeted radio events can restart a completed wake budget.
+            val airplaneExit = signal?.action == Intent.ACTION_AIRPLANE_MODE_CHANGED &&
+                !airplaneModeOn() && lastOutcome == CarHotspotWakeRecovery.Outcome.HOTSPOT_START_FAILED
+            val apDropped = signal?.action == "android.net.wifi.WIFI_AP_STATE_CHANGED" &&
+                signal.getIntExtra("wifi_state", -1) == 11 &&
+                (!signal.hasExtra("wifi_ap_mode") || signal.getIntExtra("wifi_ap_mode", -1) == 1) &&
+                !airplaneModeOn() && !CarPlayBackgroundSession.active &&
+                SystemClock.elapsedRealtime() - lastCompletedAt >= AP_DROP_COOLDOWN_MS
+            if (!airplaneExit && !apDropped) return
+        }
         awake = true
+        lastOutcome = null
         val epoch = ++generation
         getSharedPreferences("diplay_car_hotspot", MODE_PRIVATE).edit().remove("last_recovery").apply()
         Log.i(TAG, "wake recovery: started generation=$epoch")
@@ -121,7 +144,7 @@ class CarHotspotRecoveryService : Service() {
                     val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
                     val wifiState = runCatching { wifi?.wifiState }.getOrNull()
                     CarHotspotWakeRecovery.State(eligible(this), interactive(),
-                        Settings.Global.getInt(contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0,
+                        airplaneModeOn(),
                         wifiState == WifiManager.WIFI_STATE_DISABLED || wifiState == WifiManager.WIFI_STATE_ENABLED,
                         CarHotspotStatus.isEnabled(this), CarPlayBackgroundSession.active, radioRevision)
                 },
@@ -133,6 +156,8 @@ class CarHotspotRecoveryService : Service() {
             )
             // A retired worker cannot overwrite the diagnostic of a newer wake.
             if (!destroyed && epoch == generation) {
+                lastCompletedAt = SystemClock.elapsedRealtime()
+                lastOutcome = outcome
                 getSharedPreferences("diplay_car_hotspot", MODE_PRIVATE).edit()
                     .putString("last_recovery", outcome.name).apply()
                 Log.i(TAG, "wake recovery: ${outcome.name}")
@@ -154,8 +179,16 @@ class CarHotspotRecoveryService : Service() {
         private const val TAG = "DiPlay-Hotspot"
         private const val CHANNEL = "diplay_hotspot_recovery"
         private const val NOTIFICATION_ID = 7
-        fun eligible(context: Context): Boolean = CarHotspotSettings.shouldEnable(context,
-            AirPlayPersistence.loadWirelessEnabled(context), AirPlayPersistence.loadWirelessHotspotMode(context))
+        private const val AP_DROP_COOLDOWN_MS = 10_000L
+        private val ELIGIBILITY_KEYS = setOf("auto_enable", "wireless_enabled", "wireless_hotspot_mode")
+        fun eligible(context: Context): Boolean {
+            if (CarHotspotSettings.setupPending(context)) return false
+            val ssid = AirPlayPersistence.loadManualHotspotSsid(context)
+            if (ssid.isNotEmpty() && ManualHotspotValidation.error(ssid,
+                    AirPlayPersistence.loadManualHotspotPassphrase(context)) != null) return false
+            return CarHotspotSettings.shouldEnable(context,
+                AirPlayPersistence.loadWirelessEnabled(context), AirPlayPersistence.loadWirelessHotspotMode(context))
+        }
 
         fun latestResult(context: Context): CarHotspotTethering.Result? = when (
             context.getSharedPreferences("diplay_car_hotspot", MODE_PRIVATE).getString("last_recovery", null)) {

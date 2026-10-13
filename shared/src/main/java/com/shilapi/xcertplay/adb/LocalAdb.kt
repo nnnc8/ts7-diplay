@@ -10,6 +10,7 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.KeyPair
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * A shell on the head unit's own adbd ("ADB over network", 127.0.0.1:5555), for the few commands an
@@ -25,11 +26,14 @@ class LocalAdb(
     private val key: KeyPair,
     private val host: String = "127.0.0.1",
     private val port: Int = 5555,
+    private val approvalRecheckMillis: Int = 2_000,
 ) : Closeable {
+    init { require(approvalRecheckMillis > 0) }
     enum class Access { READY, NOT_APPROVED, UNREACHABLE, UNSUPPORTED }
 
     @Volatile private var socket: Socket? = null
     private val cancelled = AtomicBoolean(false)
+    private val approvalProbe = AtomicReference<LocalAdb?>()
     private var input: InputStream? = null
     private var output: OutputStream? = null
     private var nextStreamId = 1
@@ -100,13 +104,16 @@ class LocalAdb(
         }
     }
 
-    @Synchronized
-    override fun close() = closeQuietly()
+    override fun close() {
+        cancelPendingOperations()
+        synchronized(this) { closeQuietly() }
+    }
 
     /** Retires this client and unblocks pending I/O without waiting for its synchronized operation. */
     fun cancelPendingOperations() {
         cancelled.set(true)
         runCatching { socket?.close() }
+        approvalProbe.get()?.cancelPendingOperations()
     }
 
     private fun handshake(mayAsk: Boolean): Access {
@@ -126,9 +133,9 @@ class LocalAdb(
     private fun awaitApproval(): Access {
         val pendingInput = input ?: throw IOException("not connected")
         val deadline = System.nanoTime() + APPROVAL_TIMEOUT_MS * 1_000_000L
-        socket?.soTimeout = APPROVAL_RECHECK_MS
+        socket?.soTimeout = approvalRecheckMillis
         try {
-            while (System.nanoTime() < deadline) {
+            while (!cancelled.get() && System.nanoTime() < deadline) {
                 // 保留超时前收到的半包，静默检查后仍可继续解析原连接的响应。
                 pendingInput.mark(AdbPacket.MAX_PAYLOAD + 24)
                 try {
@@ -136,17 +143,24 @@ class LocalAdb(
                     return if (packet.command == AdbPacket.CNXN) Access.READY else Access.NOT_APPROVED
                 } catch (_: SocketTimeoutException) {
                     pendingInput.reset()
+                    if (cancelled.get()) return Access.UNREACHABLE
+                    if (System.nanoTime() >= deadline) return Access.NOT_APPROVED
                     // 部分车机保存了授权密钥，却不唤醒原连接；只用已保存的密钥检查，不再弹窗。
-                    val approved = LocalAdb(key, host, port).use { it.connect(mayAsk = false) == Access.READY }
+                    val probe = LocalAdb(key, host, port, approvalRecheckMillis)
+                    val approved = try {
+                        approvalProbe.set(probe)
+                        probe.use { !cancelled.get() && it.connect(mayAsk = false) == Access.READY }
+                    } finally { approvalProbe.set(null) }
+                    if (cancelled.get()) return Access.UNREACHABLE
                     if (approved) {
                         closeQuietly()
                         return connect(mayAsk = false)
                     }
                 }
             }
-            return Access.NOT_APPROVED
+            return if (cancelled.get()) Access.UNREACHABLE else Access.NOT_APPROVED
         } finally {
-            socket?.soTimeout = READ_TIMEOUT_MS
+            runCatching { socket?.soTimeout = READ_TIMEOUT_MS }
         }
     }
 
@@ -170,7 +184,6 @@ class LocalAdb(
         const val CONNECT_TIMEOUT_MS = 2_000
         const val READ_TIMEOUT_MS = 5_000
         const val APPROVAL_TIMEOUT_MS = 60_000
-        const val APPROVAL_RECHECK_MS = 1_000
         const val MAX_COMMAND_TIMEOUT_MS = 30_000
     }
 }

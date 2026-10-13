@@ -141,6 +141,11 @@ class DiPlayActivity : ComponentActivity() {
     private var clusterSafeAreaDialog: Dialog? = null
     private var clusterContentRequestVersion = 0L
     private var pendingCarHotspotSetup = false
+        set(value) {
+            field = value
+            CarHotspotSettings.setSetupPending(this, value)
+            if (value) stopService(Intent(this, CarHotspotRecoveryService::class.java))
+        }
     private var hotspotJoinControls: HotspotJoinControls? = null
     private var setupError: String? = null
     private var status: TextView? = null
@@ -184,6 +189,14 @@ class DiPlayActivity : ComponentActivity() {
     private var carButtonCard: LinearLayout? = null
     private var bydAdbControls: LinearLayout? = null
     private var adbSwitchChangePending = false
+    private val hotspotAdbChecks by lazy {
+        java.util.concurrent.Executors.newSingleThreadExecutor { action ->
+            Thread(action, "diplay-hotspot-adb-check").apply { isDaemon = true }
+        }
+    }
+    private var hotspotAdbCheck: java.util.concurrent.Future<*>? = null
+    private var hotspotAdbCheckInProgress = false
+    private var hotspotAdbCheckGeneration = 0
     private var pausedForAdbSwitchChange = false
     private var updatingAdbSwitches = false
     private val adbSwitches = mutableMapOf<Int, Pair<Switch, () -> Boolean>>()
@@ -304,7 +317,7 @@ class DiPlayActivity : ComponentActivity() {
             android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
             getString(R.string.setup_error_auth)
         }
-        pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
+        pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: CarHotspotSettings.setupPending(this)
         bydVehicleAdvancedExpanded = savedInstanceState?.getBoolean("byd_vehicle_advanced") ?: false
         settingsCategory = savedInstanceState?.getString("settings_category")
             ?.let { runCatching { SettingsCategory.valueOf(it) }.getOrNull() }
@@ -402,7 +415,7 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        CarHotspotRecoveryService.sync(this)
+        syncCarHotspotRecovery()
         // Returning from another activity can bring the head unit's own density back.
         if (enforceInterfaceSize()) render()
         if (Build.VERSION.SDK_INT < 33 && AppLocale.preference(this) != languagePreferenceAtCreate) {
@@ -439,6 +452,9 @@ class DiPlayActivity : ComponentActivity() {
         handler.removeCallbacks(automaticUpdateCheck)
         if (lazyUpdaterInitialized()) updater.close()
         hotspotJoinControls?.close()
+        hotspotAdbCheckGeneration++
+        hotspotAdbCheck?.cancel(true)
+        hotspotAdbChecks.shutdownNow()
         cancelUsbPermissionSetup()
         cancelKeyLearning()
         handler.removeCallbacks(automaticVehicleValidation)
@@ -673,11 +689,9 @@ class DiPlayActivity : ComponentActivity() {
             else -> getString(R.string.hotspot_hint_p2p)
         }
         card.addView(label(connectionHint, 15, MUTED).apply { setPadding(0, dp(14), 0, 0) })
-        val startupProblem = CarHotspotRecoveryService.latestResult(this)?.takeIf {
-            it != CarHotspotTethering.Result.READY && it != CarHotspotTethering.Result.CANCELLED &&
-                CarHotspotSettings.shouldEnable(this, true, AirPlayPersistence.loadWirelessHotspotMode(this)) &&
-                com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this) != true
-        }
+        val startupProblem = CarHotspotUiSupport.startupProblem(CarHotspotRecoveryService.latestResult(this),
+            CarHotspotSettings.shouldEnable(this, true, AirPlayPersistence.loadWirelessHotspotMode(this)),
+            com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this))
         if (startupProblem != null) {
             card.addView(label(hotspotResultText(startupProblem), 15, WARNING))
             card.addView(button(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(10, 56))
@@ -1763,9 +1777,13 @@ class DiPlayActivity : ComponentActivity() {
 
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.
     private fun carHotspotOff(): Boolean =
-        AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
-            com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this) == false &&
-            !(CarHotspotSettings.enabled(this) && CarHotspotTethering.permitted(this))
+        CarHotspotUiSupport.carHotspotOff(AirPlayPersistence.loadWirelessHotspotMode(this),
+            com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this),
+            CarHotspotSettings.enabled(this), CarHotspotTethering.permitted(this))
+
+    private fun syncCarHotspotRecovery() {
+        if (!pendingCarHotspotSetup) CarHotspotRecoveryService.sync(this)
+    }
 
     private fun bydAdbSettings(parent: LinearLayout) {
         if (!CarHotspotSettings.visible(AirPlayPersistence.loadWirelessHotspotMode(this))) return
@@ -1775,7 +1793,7 @@ class DiPlayActivity : ComponentActivity() {
                 toggle(card, getString(R.string.auto_car_hotspot_title), getString(R.string.settings_car_hotspot_recovery_description),
                     CarHotspotSettings.enabled(this)) {
                     CarHotspotSettings.setEnabled(this, it)
-                    CarHotspotRecoveryService.sync(this)
+                    syncCarHotspotRecovery()
                 }
                 if (Build.VERSION.SDK_INT >= 23 && !CarHotspotTethering.permitted(this)) {
                     card.addView(button(getString(R.string.app_permissions), false) {
@@ -1797,19 +1815,32 @@ class DiPlayActivity : ComponentActivity() {
         val controls = column().apply { visibility = View.GONE }
         bydAdbControls = controls
         parent.addView(controls)
-        Thread({
+        refreshHotspotAdbControls()
+    }
+
+    private fun refreshHotspotAdbControls() {
+        if (bydAdbControls == null || adbSwitchChangePending || vehicleAdbWorkInProgress() || hotspotAdbCheckInProgress) return
+        val generation = ++hotspotAdbCheckGeneration
+        hotspotAdbCheckInProgress = true
+        hotspotAdbCheck = hotspotAdbChecks.submit {
             val access = runCatching { CarHotspotSetup.check(applicationContext) }
                 .onFailure { Log.w("DiPlay-Hotspot", "settings ADB check failed", it) }
                 .getOrDefault(LocalAdb.Access.UNREACHABLE)
             Log.i("DiPlay-Hotspot", "settings eligibility: byd=true adb=$access visible=${CarHotspotSettings.visible(true, access)}")
             runOnUiThread {
-                if (bydAdbControls !== controls || isFinishing || isDestroyed) return@runOnUiThread
+                hotspotAdbCheckInProgress = false
+                if (isFinishing || isDestroyed || adbSwitchChangePending || vehicleAdbWorkInProgress()) return@runOnUiThread
+                if (generation != hotspotAdbCheckGeneration) {
+                    refreshHotspotAdbControls()
+                    return@runOnUiThread
+                }
+                val controls = bydAdbControls ?: return@runOnUiThread
                 if (CarHotspotSettings.visible(true, access)) {
                     controls.visibility = View.VISIBLE
                     renderBydAdbControls(controls, access)
                 }
             }
-        }, "diplay-hotspot-adb-check").start()
+        }
     }
 
     private fun renderBydAdbControls(controls: LinearLayout, access: LocalAdb.Access) {
@@ -1835,7 +1866,7 @@ class DiPlayActivity : ComponentActivity() {
                         }
                     }) {
                     CarHotspotSettings.setEnabled(this, it)
-                    CarHotspotRecoveryService.sync(this)
+                    syncCarHotspotRecovery()
                 }
                 card.addView(label(getString(R.string.settings_car_hotspot_recovery_description), 14, MUTED))
             }
@@ -1874,6 +1905,7 @@ class DiPlayActivity : ComponentActivity() {
         )
         val app = applicationContext
         adbSwitchChangePending = true
+        hotspotAdbCheckGeneration++ // A check started before authorization cannot update its controls.
         updateAdbSwitches()
         adbStatus?.setText(R.string.adb_checking_may_ask)
         if (page == "settings" && bydVehicleAdvancedExpanded) render()
@@ -1897,6 +1929,7 @@ class DiPlayActivity : ComponentActivity() {
                 adbStatus?.setText(if (ready) R.string.adb_access_ready else message)
                 if (ready) save()
                 updateAdbSwitches()
+                refreshHotspotAdbControls()
                 toast(getString(message))
                 runPendingAutomaticVehicleValidation()
                 // Re-enable the vehicle controls disabled while this authorization was outstanding.
@@ -1912,18 +1945,13 @@ class DiPlayActivity : ComponentActivity() {
             control.isEnabled = !adbSwitchChangePending && !vehicleAdbWorkInProgress()
         }
         updatingAdbSwitches = false
+        refreshHotspotAdbControls()
     }
 
     private fun vehicleAdbWorkInProgress(): Boolean =
         adbCheckInProgress || vehicleProbeAuthorizationInProgress || vehicleProbeInProgress
 
-    private fun hotspotResultText(result: CarHotspotTethering.Result): String = getString(when (result) {
-        CarHotspotTethering.Result.READY -> R.string.hotspot_control_on
-        CarHotspotTethering.Result.PERMISSION_REQUIRED -> R.string.hotspot_control_missing
-        CarHotspotTethering.Result.UNSUPPORTED -> R.string.hotspot_control_unsupported
-        CarHotspotTethering.Result.TIMED_OUT -> R.string.hotspot_control_timeout
-        else -> R.string.hotspot_control_failed
-    })
+    private fun hotspotResultText(result: CarHotspotTethering.Result): String = getString(CarHotspotUiSupport.resultText(result))
 
     private fun carHotspotOffDialog() {
         AlertDialog.Builder(this).setTitle(getString(R.string.car_hotspot_is_off))
@@ -3480,6 +3508,7 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun applyWirelessLink(mode: WirelessHotspotMode) {
         AirPlayPersistence.saveWirelessHotspotMode(this, mode)
+        syncCarHotspotRecovery()
         render()
         toast(getString(R.string.saved_for_your_next_connection))
     }
