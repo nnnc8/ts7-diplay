@@ -26,6 +26,26 @@ class CarHotspotTetheringTest {
         assertEquals(Result.PERMISSION_REQUIRED, enable(canWrite = false))
     }
 
+    @Test fun authorizedAdbCanRestoreWithoutTheApplicationWriteSettingsOp() {
+        var on = false
+        val result = CarHotspotTethering.enable(1_000, { false }, { false }, { on },
+            startFallback = { on = true; true }, start = { fail("No unprivileged framework request") })
+        assertEquals(Result.READY, result)
+    }
+
+    @Test fun writeSettingsDoesNotBypassProvisioningPermissionDenial() {
+        val result = CarHotspotTethering.enable(1_000, { false }, { true }, { false },
+            startFallback = { false }, start = { throw SecurityException("TETHER_PRIVILEGED required") })
+        assertEquals(Result.PERMISSION_REQUIRED, result)
+    }
+
+    @Test fun adbDenialAndRejectedStartHaveDistinctResults() {
+        assertEquals(Result.PERMISSION_REQUIRED, CarHotspotTethering.enable(1_000, { false }, { true }, { null },
+            startFallback = { throw SecurityException() }, start = { fail("No blind framework start") }))
+        assertEquals(Result.FAILED, CarHotspotTethering.enable(1_000, { false }, { true }, { null },
+            startFallback = { throw IllegalStateException() }, start = { fail("No blind framework start") }))
+    }
+
     @Test fun unreadableStateIsUnsupportedWithoutStartingBlindly() {
         assertEquals(Result.UNSUPPORTED, enable(state = { null }))
     }

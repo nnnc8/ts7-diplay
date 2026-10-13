@@ -1,0 +1,12 @@
+import org.gradle.api.tasks.testing.Test
+
+// Test JVM only: Java 25 needs Mockito's agent loaded before tests, rather than
+// depending on dynamic self-attach (unavailable in some CI/container environments).
+allprojects {
+    tasks.withType(Test).configureEach {
+        doFirst {
+            def mockito = classpath.files.find { it.name.startsWith('mockito-core-') && it.name.endsWith('.jar') }
+            if (mockito != null) jvmArgs "-javaagent:${mockito.absolutePath}"
+        }
+    }
+}

@@ -29,8 +29,11 @@ class T3LegacyInstrumentation : Instrumentation() {
                 sendStatus(-2, Bundle().apply { putString("stream", failure.trace) })
             }
         })
-        val suite = if (testClass == "DiPlayLegacyUpdateTlsTest")
-            DiPlayLegacyUpdateTlsTest::class.java else T3LegacyRuntimeTest::class.java
+        val suite = when (testClass) {
+            "DiPlayLegacyUpdateTlsTest" -> DiPlayLegacyUpdateTlsTest::class.java
+            "CarHotspotRecoveryRuntimeTest" -> CarHotspotRecoveryRuntimeTest::class.java
+            else -> T3LegacyRuntimeTest::class.java
+        }
         val result = junit.run(suite)
         finish(if (result.wasSuccessful()) Activity.RESULT_OK else Activity.RESULT_CANCELED,
             Bundle().apply {
