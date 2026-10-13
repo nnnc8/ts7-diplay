@@ -13,11 +13,13 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.net.BindException
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 /** Uses real loopback sockets; this does not simulate iPhone authentication or media streaming. */
 @RunWith(RobolectricTestRunner::class)
@@ -41,12 +43,29 @@ class AndroidEightCarPlayServiceTest {
                 assertFalse((info["hidDevices"] as List<*>).isEmpty())
                 service.detach()
                 assertFalse("Detached on attempt $attempt", service.isAttached())
+                assertPortReleased(port)
+            }
+        } finally { controller.destroy() }
+    }
+
+    private fun assertPortReleased(port: Int) {
+        // close() wakes accept(), but the JVM may close its descriptor only when that I/O exits.
+        // Require a real bind to the same port; a stuck listener still fails within five seconds.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (true) {
+            try {
                 ServerSocket().use { released ->
                     released.reuseAddress = true
                     released.bind(InetSocketAddress(address, port))
                 }
+                return
+            } catch (error: BindException) {
+                if (System.nanoTime() >= deadline) {
+                    throw AssertionError("Port $port was not released within five seconds of detach", error)
+                }
+                Thread.sleep(10)
             }
-        } finally { controller.destroy() }
+        }
     }
 
     @Test fun occupiedWirelessPortFallsBackToAWorkingListener() {
