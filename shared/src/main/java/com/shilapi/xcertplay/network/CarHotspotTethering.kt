@@ -16,9 +16,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /** Uses the car's saved hotspot configuration. This never stops or reconfigures the hotspot. */
+@android.annotation.SuppressLint("SoonBlockedPrivateApi") // Includes the cached hidden service field.
 object CarHotspotTethering {
     private val startupLock = ReentrantLock()
-    @android.annotation.SuppressLint("SoonBlockedPrivateApi")
     private val connectivityServiceField by lazy {
         runCatching { ConnectivityManager::class.java.getDeclaredField("mService").apply { isAccessible = true } }.getOrNull()
     }
