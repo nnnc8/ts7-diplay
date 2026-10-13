@@ -1,0 +1,61 @@
+name: Test hotspot patch on upstream release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Upstream release tag, or latest'
+        default: latest
+        type: string
+  schedule:
+    - cron: '0 6 * * 1'
+permissions:
+  contents: read
+jobs:
+  sync-test:
+    # A fork maintenance check; never run a fork-specific rebase on upstream itself.
+    if: github.repository != 'programmerguohuajing/DiPlay-Legacy-Android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/ts7-hotspot-wake-v0246
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Toolchain and disposable branch author
+        run: |
+          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;25.2.9519653'
+          git config user.name 'Hotspot sync test'
+          git config user.email 'hotspot-sync@users.noreply.github.com'
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || 'latest' }}
+        with:
+          api-level: 27
+          target: default
+          arch: x86_64
+          disable-animations: true
+          script: bash scripts/check-hotspot-upstream.sh "$REQUESTED_TAG" > upstream-sync.txt 2>&1
+      - name: Report conflicts and API27 outcome
+        if: always()
+        run: |
+          if test -f upstream-sync.txt; then
+            tail -80 upstream-sync.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upstream-sync-report
+          path: |
+            upstream-sync.txt
+            api27-hotspot.txt
+            **/build/reports/tests/
+          if-no-files-found: ignore
