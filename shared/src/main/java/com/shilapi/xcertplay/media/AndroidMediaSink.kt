@@ -219,6 +219,8 @@ class AndroidMediaSink(
     private val vendorLowLatencyDecoder: Boolean = false,
     /** Opt-in MTK ACodec low-latency/no-reorder modes, with per-session automatic fallback. */
     private val mtkDecoderTuningEnabled: Boolean = false,
+    /** Declare no frame reordering in the main screen's H.264 SPS ([H264LowDelaySps]). */
+    private val lowDelayH264Sps: Boolean = false,
 ) : MediaSink {
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
     private val callEchoReferences = ConcurrentHashMap<AudioStreamId, EchoReference>()
@@ -691,6 +693,7 @@ class AndroidMediaSink(
         // Keep the experimental MTK mode on the main CarPlay picture only. Mirrors and the
         // cluster have separate timing and must retain their established decoder configuration.
         mtkDecoderTuningEnabled = mtkDecoderTuningEnabled && type == MAIN_SCREEN_TYPE && statsLabel == null,
+        lowDelaySps = lowDelayH264Sps && type == MAIN_SCREEN_TYPE && statsLabel == null,
     ).also { if (startImmediately) it.start() }
 
     @Synchronized
@@ -891,6 +894,11 @@ private class VideoDecoder(
      */
     private val framesAtOnce: Boolean = false,
     private val mtkDecoderTuningEnabled: Boolean = false,
+    /**
+     * For H.264, declare in the SPS that frames are never reordered ([H264LowDelaySps]), so a decoder that would
+     * hold decoded frames for reordering releases each at once. Dropped for the stream once a B slice arrives.
+     */
+    lowDelaySps: Boolean = false,
 ) : Closeable {
     private val pacer = FramePacer()
     private val pacingDelay = if (pacingDelayNanos > 0) PacingDelay(pacingDelayNanos) else null
@@ -926,6 +934,9 @@ private class VideoDecoder(
     } else MtkDecoderMode.NONE
     private var configuredMtkMode = MtkDecoderMode.NONE
     private var configuredMtkCodec2LowLatency = false
+    // Low-delay SPS still asked for, and whether the current codec was configured with a rewritten SPS.
+    private var lowDelaySpsActive = lowDelaySps
+    private var configuredLowDelaySps = false
     // Whether the vendor low-latency parameters were set on the codec being configured.
     private var configuredVendorLowLatency = false
     // Likewise the low-latency decoder, not tried again once another decoder had to take over; and what the
@@ -1164,11 +1175,14 @@ private class VideoDecoder(
         val codecData = config.codecData
         val mime = if (codec == VideoCodec.H265) MediaFormat.MIMETYPE_VIDEO_HEVC
         else MediaFormat.MIMETYPE_VIDEO_AVC
+        configuredLowDelaySps = false
         val csd = if (codec == VideoCodec.H265) {
             MediaCodecSupport.hevcCodecSpecificData(codecData).takeIf { it.isNotEmpty() }
                 ?.let { listOf(it) } ?: emptyList()
         } else {
-            val (sps, pps) = MediaCodecSupport.avcParameterSets(codecData)
+            val (originalSps, pps) = MediaCodecSupport.avcParameterSets(codecData)
+            val sps = if (lowDelaySpsActive) H264LowDelaySps.rewrite(originalSps) ?: originalSps else originalSps
+            configuredLowDelaySps = sps !== originalSps
             listOfNotNull(
                 sps.takeIf { it.isNotEmpty() }?.let { START_CODE + it },
                 pps.takeIf { it.isNotEmpty() }?.let { START_CODE + it },
@@ -1224,6 +1238,7 @@ private class VideoDecoder(
             val lowLatency = if (vendorLowLatency) " vendorLowLatency=$configuredVendorLowLatency" else ""
             val output = if (outputThread != null) " outputThread=true" else ""
             val atOnceReport = if (atOnce) " lowLatency=$startedLowLatency pictureOrder=$startedPictureOrder" else ""
+            val lowDelay = if (configuredLowDelaySps) " lowDelaySps=true" else ""
             val mtk = when {
                 configuredMtkCodec2LowLatency -> " mtkTuning=codec2-low-latency"
                 MtkDecoderTuning.isDecoderName(configured.codecName) ->
@@ -1231,7 +1246,7 @@ private class VideoDecoder(
                 else -> ""
             }
             report("decoder=${configured.codecName} mime=$mime size=${width}x$height" +
-                "$rate$lowLatency$output$atOnceReport$mtk")
+                "$rate$lowLatency$output$atOnceReport$lowDelay$mtk")
             Log.i(
                 TAG,
                 "video decoder configured name=${configured.codecName} mime=$mime size=${width}x$height$mtk",
@@ -1457,9 +1472,11 @@ private class VideoDecoder(
         lastConfig?.let(::configureDecoder)
     }
 
-    private fun feed(nalus: ByteArray, receivedNs: Long, presentNs: Long = 0L) {
-        val annexB = MediaCodecSupport.toAnnexB(nalus)
+    private fun feed(received: ByteArray, receivedNs: Long, presentNs: Long = 0L) {
         val config = lastConfig ?: return
+        val nalus = if (lowDelaySpsActive && config.codec == VideoCodec.H264) lowDelayFrame(received) ?: return
+        else received
+        val annexB = MediaCodecSupport.toAnnexB(nalus)
         if (outputSurface == null) return
         if (annexB.isEmpty()) { recover("invalid video access unit"); return }
         if (!referenceChain.accepts(annexB, config.codec)) {
@@ -1527,6 +1544,16 @@ private class VideoDecoder(
             return
         }
         if (outputThread == null) drainOutput(codec)
+    }
+
+    /** [nalus] with in-band SPS rewritten like the configured one; null when B slices end low delay. */
+    private fun lowDelayFrame(nalus: ByteArray): ByteArray? {
+        H264LowDelaySps.lowDelayAccessUnit(nalus)?.let { return it }
+        lowDelaySpsActive = false
+        if (!configuredLowDelaySps) return nalus
+        // Output in decoding order would show B frames out of order: restart from a keyframe with the iPhone's SPS.
+        recover("low-delay SPS dropped: the stream has B slices")
+        return null
     }
 
     private fun recover(reason: String) {
