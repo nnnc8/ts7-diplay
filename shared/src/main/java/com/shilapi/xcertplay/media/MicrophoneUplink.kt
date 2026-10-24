@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import android.media.AudioFormat as AndroidAudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
@@ -28,6 +29,7 @@ import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
+    private val audioManager: AudioManager? = null,
     private val speakerphoneCall: Boolean = false,
     /** The call's far-end audio; when set, telephony capture runs DiPlay's own echo canceller. */
     private val echoReference: EchoReference? = null,
@@ -46,8 +48,13 @@ internal class MicrophoneUplink(
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
-        Log.i(TAG, message)
-        onDiagnostic(message)
+        val diagnostic = if (message.startsWith("Microphone: start ")) {
+            message + inputDevicesMetadata(recorder)
+        } else {
+            message
+        }
+        Log.i(TAG, diagnostic)
+        onDiagnostic(diagnostic)
     })
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
@@ -424,6 +431,19 @@ internal class MicrophoneUplink(
 
     private fun routeType(recorder: AudioRecord): Int? = runCatching { recorder.routedDevice?.type }.getOrNull()
 
+    private fun inputDevicesMetadata(recording: AudioRecord?): String = runCatching {
+        val devices = audioManager?.getDevices(AudioManager.GET_DEVICES_INPUTS) ?: return@runCatching ""
+        val routedId = recording?.routedDevice?.id
+        val entries = devices.map { device ->
+            MicrophoneInputDeviceDiagnostic(
+                type = device.type,
+                productName = device.productName?.toString().orEmpty(),
+                routed = device.id == routedId,
+            )
+        }
+        " ${formatMicrophoneInputDevices(entries)}"
+    }.getOrDefault("")
+
     /** Capture can continue with the same recorder if the optional native processor stops working. */
     @Synchronized
     private fun restorePlatformEchoCancellation() {
@@ -517,6 +537,22 @@ internal class MicrophoneUplink(
         const val EMPTY_READ_PAUSE_MILLIS = 5L
     }
 }
+
+internal data class MicrophoneInputDeviceDiagnostic(
+    val type: Int,
+    val productName: String,
+    val routed: Boolean,
+)
+
+internal fun formatMicrophoneInputDevices(devices: List<MicrophoneInputDeviceDiagnostic>): String =
+    "inputDevices=[" + devices.joinToString(";") { device ->
+        val productName = device.productName
+            .map { character -> if (character.isLetterOrDigit() || character in "._-") character else '_' }
+            .take(48)
+            .joinToString("")
+            .ifEmpty { "unknown" }
+        "type=${device.type} product=$productName routed=${device.routed}"
+    } + "]"
 
 /**
  * The recorder source for a CarPlay call. While DiPlay holds the car's phone audio state the car's call

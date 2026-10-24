@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay.media
 
+import java.util.Random
+import kotlin.math.abs
+import kotlin.math.sign
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -117,5 +120,142 @@ class EchoReferenceTest {
         reference.anchor(played = 500, nowMs = 600)
         assertTrue(reference.read(out, endNs = 600_000_000))
         assertEquals(490, out[0].toInt())
+    }
+
+    @Test fun randomizedRingReadsMatchThePreviousLongModuloImplementation() {
+        val random = Random(0x7A55_2026L)
+        val optimized = EchoReference(sampleRate = 1_000, capacityMillis = 23)
+        val previous = PreviousEchoReference(sampleRate = 1_000, capacityMillis = 23)
+        var written = 0L
+        var nowNs = 0L
+
+        repeat(600) {
+            if (random.nextInt(37) == 0) {
+                optimized.reset()
+                previous.reset()
+                written = 0
+            }
+
+            val channels = if (random.nextBoolean()) 1 else 2
+            val frames = random.nextInt(31)
+            val offset = random.nextInt(5)
+            val length = frames * channels * 2
+            val pcm = ByteArray(offset + length + random.nextInt(5)) { random.nextInt(256).toByte() }
+            val pendingFrames = if (random.nextInt(7) == 0) null else random.nextInt((written + 16).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() + 1).toLong()
+            nowNs += random.nextInt(20_000_001).toLong()
+            optimized.append(pcm, offset, length, channels, pendingFrames, nowNs)
+            previous.append(pcm, offset, length, channels, pendingFrames, nowNs)
+            written += frames
+
+            if (random.nextBoolean()) {
+                val outSize = random.nextInt(30)
+                val optimizedOut = ShortArray(outSize)
+                val previousOut = ShortArray(outSize)
+                val endNs = nowNs + random.nextInt(61_000_001).toLong() - 20_000_000L
+                assertEquals(previous.read(previousOut, endNs), optimized.read(optimizedOut, endNs))
+                assertArrayEquals(previousOut, optimizedOut)
+            }
+        }
+    }
+
+    /** Original Long-modulo implementation retained as a deterministic output oracle. */
+    private class PreviousEchoReference(val sampleRate: Int, capacityMillis: Int = 2_000) {
+        private val ring = ShortArray(sampleRate * capacityMillis / 1000)
+        private var written = 0L
+        private var anchorSample = NOT_PLAYING
+        private var anchorNs = 0L
+        private var cursor = NOT_PLAYING
+        private var settled = false
+        private val errors = LongArray(ERROR_WINDOW)
+        private var errorAt = 0
+        private var errorCount = 0
+
+        @Synchronized
+        fun append(pcm: ByteArray, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) {
+            val frameBytes = 2 * channels
+            for (frame in 0 until length / frameBytes) {
+                val base = offset + frame * frameBytes
+                var sum = 0
+                for (channel in 0 until channels) {
+                    val at = base + channel * 2
+                    sum += (pcm[at + 1].toInt() shl 8) or (pcm[at].toInt() and 0xff)
+                }
+                ring[(written % ring.size).toInt()] = (sum / channels).toShort()
+                written++
+            }
+            if (pendingFrames == null) {
+                anchorSample = NOT_PLAYING
+            } else {
+                anchorSample = written - pendingFrames.coerceIn(0L, written)
+                anchorNs = nowNs
+            }
+        }
+
+        @Synchronized
+        fun reset() {
+            written = 0
+            anchorSample = NOT_PLAYING
+            cursor = NOT_PLAYING
+        }
+
+        @Synchronized
+        fun read(out: ShortArray, endNs: Long): Boolean {
+            if (anchorSample == NOT_PLAYING) {
+                cursor = NOT_PLAYING
+                out.fill(0)
+                return false
+            }
+            val estimate = anchorSample + Math.floorDiv((endNs - anchorNs) * sampleRate, 1_000_000_000L) - out.size
+            val start = steer(estimate)
+            cursor = start + out.size
+            val oldest = maxOf(0L, written - ring.size)
+            var heard = false
+            for (i in out.indices) {
+                val sample = start + i
+                out[i] = if (sample in oldest until written) {
+                    heard = true
+                    ring[(sample % ring.size).toInt()]
+                } else {
+                    0
+                }
+            }
+            return heard
+        }
+
+        private fun steer(estimate: Long): Long {
+            if (cursor == NOT_PLAYING) {
+                cursor = estimate
+                settled = false
+                errorCount = 0
+                return cursor
+            }
+            errors[errorAt] = estimate - cursor
+            errorAt = (errorAt + 1) % errors.size
+            if (errorCount < errors.size) errorCount++
+            if (errorCount == errors.size) {
+                val mean = errors.sum() / errors.size
+                when {
+                    abs(mean) > sampleRate * RESYNC_MILLIS / 1000L -> {
+                        cursor = estimate
+                        settled = false
+                        errorCount = 0
+                    }
+                    !settled -> {
+                        cursor += mean
+                        settled = true
+                        errorCount = 0
+                    }
+                    abs(mean) > sampleRate * SLEW_MILLIS / 1000L -> cursor += mean.sign
+                }
+            }
+            return cursor
+        }
+
+        private companion object {
+            const val NOT_PLAYING = Long.MIN_VALUE
+            const val ERROR_WINDOW = 10
+            const val SLEW_MILLIS = 5
+            const val RESYNC_MILLIS = 20
+        }
     }
 }
