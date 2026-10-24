@@ -84,6 +84,8 @@ DiPlay 用以下條件判斷車機是不是 TS7：`Build.HARDWARE`、`Build.BOAR
 
 ## 驗證狀態
 
-- 已完成：單元測試、lint 和 APK 組建。驗證方式：`./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :mobile:assembleDebug`。
+- 已完成：v21.1 的 shared/common/home 單元測試、mobile/home/maphost lint 與 debug APK 組建。驗證方式：repo `AGENTS.md` 的完整 CI 指令。
+- 已完成：原生加解密測試 385 項，0 失敗，包含 RFC 向量、60 組 BouncyCastle fixture 與錯誤 tag。驗證方式：`./shared/src/test/native/run.sh`。
+- 已完成：大字體 compact/full 與 Arabic RTL 截圖測試，並查看設定列與說明。
 - 已完成：SPS 改寫後的影像仍可正常解碼。驗證方式：我用 macOS VideoToolbox 解碼 6 段 720p 測試影像（baseline、main、high，含 B 影格的兩段）。每段 60 個影格，改寫前後的解碼結果雜湊值相同，沒有錯誤。
 - 未驗證：v21.1 的實車延遲、原生解密效能、通話與斷線行為。請依實車測試清單確認。
