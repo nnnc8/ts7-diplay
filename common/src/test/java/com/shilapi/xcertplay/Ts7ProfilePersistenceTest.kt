@@ -32,6 +32,16 @@ class Ts7ProfilePersistenceTest {
         assertTrue(AirPlayPersistence.loadLowDelayH264Sps(context, ts7 = false))
     }
 
+    @Test fun directVideoOutputDefaultsOnOnlyForTs7AndSavedValueWins() {
+        assertTrue(AirPlayPersistence.loadDirectVideoOutput(context, ts7 = true))
+        assertFalse(AirPlayPersistence.loadDirectVideoOutput(context, ts7 = false))
+
+        AirPlayPersistence.saveDirectVideoOutput(context, enabled = false)
+        assertFalse(AirPlayPersistence.loadDirectVideoOutput(context, ts7 = true))
+        AirPlayPersistence.saveDirectVideoOutput(context, enabled = true)
+        assertTrue(AirPlayPersistence.loadDirectVideoOutput(context, ts7 = false))
+    }
+
     @Test fun wirelessBufferDefaultsTo500OnlyForTs7AndNeverChangesWiredDefault() {
         assertEquals(500, AirPlayPersistence.loadMediaBufferMillis(context, wireless = true, ts7 = true))
         assertEquals(300, AirPlayPersistence.loadMediaBufferMillis(context, wireless = true, ts7 = false))
