@@ -649,6 +649,7 @@
     <string name="hotspot_control_unsupported">Questo firmware non supporta l’avvio automatico dell’hotspot. Apri l’hotspot nelle impostazioni dell’auto.</string>
     <string name="hotspot_control_timeout">Tempo scaduto in attesa dell’hotspot dell’auto. Apri l’hotspot nelle impostazioni dell’auto.</string>
     <string name="hotspot_control_failed">L’auto non è riuscita ad avviare il suo hotspot. Apri l’hotspot nelle impostazioni dell’auto.</string>
+    <string name="hotspot_no_channel">La banda salvata dell’hotspot non è disponibile. Imposta l’hotspot dell’auto su 2,4 GHz nelle impostazioni dell’auto.</string>
     <string name="byd_adb_features">Funzioni BYD · richiede ADB</string>
     <string name="location_reporting_reconnects">Cambiare questa impostazione riconnette una sessione CarPlay attiva.</string>
     <string name="diagnostic_report_saved_in_app">Il report è stato salvato in privato in DiPlay perché non era disponibile una posizione di salvataggio pubblica. Condividilo o visualizzalo qui. Non viene inviato nulla automaticamente.</string>

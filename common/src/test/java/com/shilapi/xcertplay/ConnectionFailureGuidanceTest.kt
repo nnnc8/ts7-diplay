@@ -29,6 +29,9 @@ class ConnectionFailureGuidanceTest {
             guide("unknown", startup = WirelessStartupFailure.HOTSPOT_NOT_READY))
         assertEquals(R.string.connection_help_hotspot,
             guide("unknown", startup = WirelessStartupFailure.HOTSPOT_CONFIGURATION))
+        assertEquals(R.string.hotspot_no_channel,
+            guide("unknown", startup = WirelessStartupFailure.HOTSPOT_NO_CHANNEL))
+        assertFalse(WirelessStartupFailure.HOTSPOT_NO_CHANNEL.retryable)
         assertEquals(R.string.connection_help_iphone_wifi,
             guide("unknown", startup = WirelessStartupFailure.FIRST_TCP_TIMEOUT))
     }

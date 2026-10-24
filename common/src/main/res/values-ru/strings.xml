@@ -588,6 +588,7 @@
     <string name="hotspot_control_unsupported">Прошивка не поддерживает автоматическое включение точки доступа. Откройте настройки автомобиля.</string>
     <string name="hotspot_control_timeout">Истекло время ожидания включения точки доступа. Откройте настройки автомобиля.</string>
     <string name="hotspot_control_failed">Не удалось включить точку доступа. Откройте настройки автомобиля.</string>
+    <string name="hotspot_no_channel">Сохранённый диапазон точки доступа недоступен. Выберите 2,4 ГГц в настройках автомобиля.</string>
     <string name="byd_adb_features">Функции BYD · нужен ADB</string>
     <string name="location_reporting_reconnects">Изменение этой настройки перезапускает активное подключение CarPlay.</string>
     <string name="diagnostic_report_saved_in_app">Отчёт сохранён приватно в DiPlay, поскольку общедоступное место сохранения недоступно. Поделитесь им или просмотрите его здесь. Ничего не отправляется автоматически.</string>

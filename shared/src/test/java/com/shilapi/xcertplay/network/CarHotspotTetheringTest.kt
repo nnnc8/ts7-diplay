@@ -37,7 +37,9 @@ class CarHotspotTetheringTest {
     }
 
     @Test fun successfulRequestStillWaitsForActualHotspotState() {
-        assertEquals(Result.TIMED_OUT, enable(start = { it.send(0, null) }))
+        var calls = 0
+        assertEquals(Result.TIMED_OUT, enable(start = { calls++; it.send(0, null) }))
+        assertEquals(1, calls)
     }
 
     @Test fun actualEnabledStateCompletesStartup() {
@@ -226,10 +228,163 @@ class CarHotspotTetheringTest {
         assertEquals(1, calls.get())
     }
 
+    @Test fun anExistingEnablingStateWaitsWithoutStartingAgain() {
+        val clock = FakeClock()
+        var calls = 0
+        val result = enableRaw(clock, timeoutMillis = 2_000, rawState = {
+            if (clock.nowMillis >= 500L) 13 else 12
+        }, start = { calls++ })
+
+        assertEquals(Result.READY, result)
+        assertEquals(0, calls)
+        assertEquals(500L, clock.nowMillis)
+    }
+
+    @Test fun disablingStateWaitsForTheApToSettleBeforeStarting() {
+        val clock = FakeClock()
+        var calls = 0
+        var apState = 10
+        val result = enableRaw(clock, timeoutMillis = 3_000, rawState = { apState }, start = {
+            calls++
+            apState = 13
+        })
+
+        assertEquals(Result.READY, result)
+        assertEquals(1, calls)
+        assertEquals(2_000L, clock.nowMillis)
+    }
+
+    @Test fun noChannelFailureReturnsImmediatelyWithAnActionableResult() {
+        val clock = FakeClock()
+        var apState = 11
+        var calls = 0
+        val result = enableRaw(clock, rawState = { apState }, failureReason = { 1 }, start = {
+            calls++
+            apState = 14
+        })
+
+        assertEquals(Result.NO_CHANNEL, result)
+        assertEquals(1, calls)
+        assertEquals(0L, clock.nowMillis)
+    }
+
+    @Test fun otherApFailuresRetryTwiceThenReturnFailed() {
+        val clock = FakeClock()
+        var apState = 11
+        var calls = 0
+        val result = enableRaw(clock, rawState = {
+            apState.also { if (it == 12) apState = 14 }
+        }, failureReason = { 2 }, start = {
+            calls++
+            apState = 12
+        })
+
+        assertEquals(Result.FAILED, result)
+        assertEquals(3, calls)
+        // Each round: ENABLING for one poll, FAILED, then the 500 ms pause before the next request.
+        assertEquals(1_750L, clock.nowMillis)
+    }
+
+    @Test fun aFailureLeftFromAnEarlierAttemptDoesNotDecideTheNewRequest() {
+        val clock = FakeClock()
+        var calls = 0
+        val result = enableRaw(clock, rawState = {
+            when {
+                calls == 0 || clock.nowMillis < 250L -> 14
+                clock.nowMillis < 500L -> 12
+                else -> 13
+            }
+        }, failureReason = { 1 }, start = { calls++ })
+
+        assertEquals(Result.READY, result)
+        assertEquals(1, calls)
+        assertEquals(500L, clock.nowMillis)
+    }
+
+    @Test fun aRepeatedFailureAfterTheGracePeriodStillReportsNoChannel() {
+        val clock = FakeClock()
+        var calls = 0
+        val result = enableRaw(clock, timeoutMillis = 5_000, rawState = { 14 }, failureReason = { 1 }, start = {
+            calls++
+        })
+
+        assertEquals(Result.NO_CHANNEL, result)
+        assertEquals(1, calls)
+        assertEquals(2_000L, clock.nowMillis)
+    }
+
+    @Test fun aRejectedRequestFailsWithoutRetryingAStaleFailure() {
+        val clock = FakeClock()
+        var calls = 0
+        val result = enableRaw(clock, rawState = { 14 }, failureReason = { 2 }, start = {
+            calls++
+            it.send(3, null)
+        })
+
+        assertEquals(Result.FAILED, result)
+        assertEquals(1, calls)
+        assertEquals(0L, clock.nowMillis)
+    }
+
+    @Test fun acceptedRequestStuckAtIdleIsRetriedOnlyOnceAfterThreeSeconds() {
+        val clock = FakeClock()
+        var calls = 0
+        val result = enableRaw(clock, timeoutMillis = 5_000, rawState = { 11 }, start = {
+            calls++
+            it.send(0, null)
+        })
+
+        assertEquals(Result.TIMED_OUT, result)
+        assertEquals(2, calls)
+        assertEquals(5_000L, clock.nowMillis)
+    }
+
+    @Test fun ts7EnablingProgressExtendsOnlyToTheConfiguredCap() {
+        val clock = FakeClock()
+        val result = enableRaw(clock, timeoutMillis = 500, maxTimeoutMillis = 1_000,
+            extendWhileEnabling = true, rawState = { 12 }, start = { fail("Do not start while enabling") })
+
+        assertEquals(Result.TIMED_OUT, result)
+        assertEquals(1_000L, clock.nowMillis)
+    }
+
     private fun enable(
         canWrite: Boolean = true,
         state: () -> Boolean? = { false },
         cancelled: () -> Boolean = { false },
         start: (ResultReceiver) -> Unit = { fail("Unexpected hotspot mutation") },
     ): Result = CarHotspotTethering.enable(20, cancelled, { canWrite }, state, start)
+
+    private fun enableRaw(
+        clock: FakeClock,
+        timeoutMillis: Long = 2_000,
+        maxTimeoutMillis: Long = timeoutMillis,
+        extendWhileEnabling: Boolean = false,
+        rawState: () -> Int?,
+        failureReason: () -> Int? = { null },
+        start: (ResultReceiver) -> Unit,
+    ): Result = CarHotspotTethering.enableWithRawState(
+        timeoutMillis = timeoutMillis,
+        isCancelled = { false },
+        canWrite = { true },
+        isEnabled = { rawState()?.let { it == 13 } },
+        rawApState = rawState,
+        failureReason = failureReason,
+        maxTimeoutMillis = maxTimeoutMillis,
+        extendWhileEnabling = extendWhileEnabling,
+        nowNanos = clock::nowNanos,
+        pauseMillis = clock::pause,
+        start = start,
+    )
+
+    private class FakeClock {
+        var nowMillis: Long = 0
+            private set
+
+        fun nowNanos(): Long = nowMillis * 1_000_000L
+
+        fun pause(millis: Long) {
+            nowMillis += millis
+        }
+    }
 }

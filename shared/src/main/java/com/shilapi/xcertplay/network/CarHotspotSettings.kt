@@ -7,7 +7,14 @@ import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 object CarHotspotSettings {
     private fun prefs(context: Context) = context.getSharedPreferences("diplay_car_hotspot", Context.MODE_PRIVATE)
 
-    fun enabled(context: Context): Boolean = prefs(context).getBoolean("auto_enable", false)
+    fun enabled(context: Context, ts7Detected: Boolean = Ts7HeadUnit.detected): Boolean {
+        val preferences = prefs(context)
+        return if (preferences.contains("auto_enable")) preferences.getBoolean("auto_enable", false)
+        else enabledByDefault(ts7Detected, PlatformTetheringStart.supported())
+    }
+
+    internal fun enabledByDefault(ts7Detected: Boolean, appStartSupported: Boolean): Boolean =
+        ts7Detected && appStartSupported
 
     fun setEnabled(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean("auto_enable", enabled).apply()
