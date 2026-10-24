@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.media
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
+import java.net.SocketException
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -25,14 +26,15 @@ class MicrophoneCaptureStatsTest {
         stats.read(0)
         stats.encoded(0, 1)
         stats.sent()
-        stats.sendFailed()
+        stats.sendFailed(SocketException("send to 198.51.100.20:54321 failed"), afterStop = false)
         stats.flush()
         assertEquals(1, reports.size)
         now = 5_000_000_000
         stats.flush(routeType = { 18 })
         val first = reports.last()
-        assertTrue(first.contains("captureBytes=1920 reads=2 zeroReads=1 readErrors=0 readMaxMs=30"))
-        assertTrue(first.contains("encodedFrames=1 emptyEncodedFrames=1 udpSent=2 sendErrors=1 sendGapMaxMs=30"))
+        assertTrue(first.contains("captureBytes=1920 reads=2 zeroReads=1 readErrors=0 readMaxMs=30 firstReadMs=25"))
+        assertTrue(first.contains("encodedFrames=1 emptyEncodedFrames=1 udpSent=2 sendErrors=1 " +
+            "lastSendError=SocketException:send to [ip]:[port] failed afterStop=false sendGapMaxMs=30"))
         assertTrue(first.contains("routedDeviceType=18"))
         assertTrue(first.endsWith("ended=false"))
         stats.reading()
@@ -41,9 +43,29 @@ class MicrophoneCaptureStatsTest {
         stats.failure(MicrophoneFailureStage.READ, code = -3)
         stats.flush(ended = true)
         val final = reports.last()
-        assertTrue(final.contains("captureBytes=0 reads=1 zeroReads=0 readErrors=1 readMaxMs=8"))
+        assertTrue(final.contains("captureBytes=0 reads=1 zeroReads=0 readErrors=1 readMaxMs=8 firstReadMs=25"))
         assertTrue(final.contains("encodedFrames=0 emptyEncodedFrames=0 udpSent=0 sendErrors=0"))
+        assertFalse(final.contains("lastSendError="))
         assertTrue(final.endsWith("ended=true"))
+    }
+
+    @Test fun keepsOnlyTheFirstSendFailureAndRedactsItsEndpointAndLength() {
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config, reports::add) { 0 }
+        stats.started(15)
+        stats.sendFailed(SocketException("route to 198.51.100.20:54321 failed ${"x".repeat(120)}"), afterStop = true)
+        stats.sendFailed(IllegalStateException("later error"), afterStop = false)
+        stats.flush(ended = true)
+
+        val line = reports.last()
+        val error = line.substringAfter("lastSendError=").substringBefore(" afterStop=")
+        assertTrue(line.contains("sendErrors=2"))
+        assertTrue(error.startsWith("SocketException:route to [ip]:[port] failed"))
+        assertTrue(error.substringAfter(':').length <= 80)
+        assertTrue(line.contains("afterStop=true"))
+        assertFalse(line.contains("later error"))
+        assertFalse(line.contains("198.51.100.20"))
+        assertFalse(line.contains("54321"))
     }
 
     @Test fun reportsTheLoudestSampleSoSilentCaptureStandsOut() {
@@ -55,6 +77,7 @@ class MicrophoneCaptureStatsTest {
         now = 5_000_000_000
         stats.flush()
         assertTrue(reports.last().contains("peakDbfs=silent"))
+        assertTrue(reports.last().contains("firstReadMs=none"))
         // -16384 little-endian is half of full scale: -6 dBFS.
         stats.level(byteArrayOf(0, 0, 0x00, 0xc0.toByte(), 0x10, 0x00))
         stats.flush(ended = true)

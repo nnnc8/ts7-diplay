@@ -970,7 +970,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         card.addView(homeButton(getString(R.string.choose_iphone), false) { choosePhone() }, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
         disconnectButton = homeButton(getString(R.string.disconnect), false) {
             disconnectButton?.isEnabled = false
-            CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
+            CarPlayBackgroundSession.stop("Disconnect button pressed", SessionEndBy.USER) {
+                runOnUiThread { refreshStatus() }
+            }
         }.apply { visibility = View.GONE }
         card.addView(disconnectButton, matchButton(if (compact) CONTROL_GAP_DP else 16, if (compact) 46 else 56))
         val right = column().apply { gravity = Gravity.CENTER_HORIZONTAL }
@@ -5657,7 +5659,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             AirPlayPersistence.saveWirelessEnabled(this, wireless)
             openProjection()
         }
-        if (CarPlayBackgroundSession.hasSession()) CarPlayBackgroundSession.stop { runOnUiThread { open() } }
+        if (CarPlayBackgroundSession.hasSession()) {
+            CarPlayBackgroundSession.stop("connection transport changed", SessionEndBy.USER) {
+                runOnUiThread { open() }
+            }
+        }
         else open()
     }
     private fun openProjection() {
@@ -5727,7 +5733,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appDialogBuilder().setTitle(getString(R.string.reset_carplay_wi_fi_2))
             .setMessage(getString(R.string.this_ends_the_existing_wi_fi_direct_connection_including_o))
             .setPositiveButton(getString(R.string.reset_and_connect)) { _, _ ->
-                CarPlayBackgroundSession.stop { runOnUiThread { resetWirelessGroup() } }
+                CarPlayBackgroundSession.stop("wireless reset and reconnect requested", SessionEndBy.USER) {
+                    runOnUiThread { resetWirelessGroup() }
+                }
             }.setNegativeButton(getString(R.string.cancel), null).show()
     }
 
