@@ -334,6 +334,21 @@ class AdaptiveSettingsUiTest {
         assertTrue(texts(screen).any { it.text.startsWith(screen.getString(R.string.frame_rate) + " · ") })
     }
 
+    @Test fun frameRateChoiceShowsTheEffectiveSavedValue() {
+        AirPlayPersistence.saveFps(context, 60)
+        val screen = openSettings()
+        descendants(screen.window.decorView).first {
+            it.contentDescription == screen.getString(
+                R.string.settings_open_category,
+                screen.getString(R.string.settings_display),
+            )
+        }.performClick()
+
+        val displayed = texts(screen).map { it.text.toString() }.toList()
+        val effectiveChoice = "${screen.getString(R.string.frame_rate)} · ${screen.getString(R.string.s_60_fps_smoother_motion)}"
+        assertTrue(displayed.toString(), displayed.any { it.startsWith(effectiveChoice) })
+    }
+
     // Android 7.1 and 9 too: the result list once called a PopupWindow method that Android 10 added.
     @Test
     @Config(sdk = [25, 28, 29])
@@ -721,6 +736,9 @@ class AdaptiveSettingsUiTest {
             assertTrue(text(it), text(it) in advanced)
             assertFalse(text(it), text(it) in audio)
         }
+        assertTrue(advanced.any { it.startsWith(text(R.string.settings_h264_frame_end_marker) + " · ") })
+        assertTrue(text(R.string.settings_h264_frame_end_marker_description) in advanced)
+        assertFalse(audio.any { it.startsWith(text(R.string.settings_h264_frame_end_marker) + " · ") })
         assertTrue(text(R.string.right_hand_drive) in vehicle)
         assertTrue(text(R.string.car_button_in_carplay) in vehicle)
         assertTrue(text(R.string.wheel_siri_key) in vehicle)
@@ -741,6 +759,7 @@ class AdaptiveSettingsUiTest {
             R.string.side_panel, R.string.split_screen_areas, R.string.carplay_rotation).forEach {
             assertFalse(text(it), text(it) in display)
         }
+        assertFalse(display.any { it.startsWith(text(R.string.settings_h264_frame_end_marker) + " · ") })
     }
 
     @Test fun navigationAttenuationSliderSavesAndUpdatesActiveAudioWithoutReconnect() {

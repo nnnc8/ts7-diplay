@@ -770,6 +770,11 @@
     <string name="settings_low_latency_decoder_description">Chiede ai decoder video Qualcomm di emettere ogni fotogramma appena decodificato invece di trattenere i successivi, e mostra ogni fotogramma decodificato da un thread dedicato senza attendere l’arrivo del successivo. Può ridurre il ritardo di decine di millisecondi. Disattivalo se l’immagine mostra artefatti o si blocca. Si applica alla prossima connessione.</string>
     <string name="settings_low_delay_h264_sps">Uscita H.264 senza riordino (sperimentale)</string>
     <string name="settings_low_delay_h264_sps_description">Comunica al decoder video che l\'H.264 di CarPlay non contiene fotogrammi riordinati, così ogni fotogramma viene mostrato appena decodificato invece di essere trattenuto. Riduce il ritardo video su decoder come quello del TS7. Si disattiva per la sessione se l\'iPhone invia fotogrammi riordinati. È attivo per impostazione predefinita sul TS7. Si applica alla prossima connessione CarPlay.</string>
+    <string name="settings_h264_frame_end_marker">Marcatore di fine fotogramma H.264 (sperimentale)</string>
+    <string name="settings_h264_frame_end_marker_description">Prova questa opzione sui decoder che trattengono ogni fotogramma, come il TS7. Confronta `decode p50` nelle statistiche video per valutare il risultato. Si applica alla prossima connessione CarPlay.</string>
+    <string name="settings_h264_frame_end_marker_off">Disattivato</string>
+    <string name="settings_h264_frame_end_marker_append">Aggiungi a ogni fotogramma</string>
+    <string name="settings_h264_frame_end_marker_separate">Invia separatamente</string>
     <string name="settings_fps_counter">Contatore FPS</string>
     <string name="settings_fps_counter_description">Mostra un contatore nell’angolo in alto a destra di CarPlay: fotogrammi mostrati al secondo (verde da 50, giallo da 30, rosso sotto), fotogrammi ricevuti dall’iPhone al secondo e tempo di decodifica. Uno schermo fermo mostra pochi fotogrammi perché l’iPhone non ne invia.</string>
     <string name="car_button_in_carplay">Pulsante dell’auto in CarPlay</string>

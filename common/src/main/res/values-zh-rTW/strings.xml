@@ -751,6 +751,11 @@
     <string name="settings_low_latency_decoder_description">要求高通影片解碼器在每一幀解碼後立即輸出，而不是保留後續幀，並由專用執行緒立即顯示每個已解碼的幀，無需等待下一幀到達。可將延遲降低數十毫秒。如果畫面出現破圖或凍結，請關閉。下次連線時生效。</string>
     <string name="settings_low_delay_h264_sps">H.264 不重新排序輸出（實驗性）</string>
     <string name="settings_low_delay_h264_sps_description">告知影片解碼器 CarPlay 的 H.264 不含重新排序的影格，讓每個影格解碼後立即顯示，不必等待。可降低 TS7 等解碼器的影片延遲。若 iPhone 傳送重新排序的影格，本次連線期間會自動停用。TS7 預設開啟。下次 CarPlay 連線時套用。</string>
+    <string name="settings_h264_frame_end_marker">H.264 畫面結束標記（實驗性）</string>
+    <string name="settings_h264_frame_end_marker_description">在會暫存每一格畫面的解碼器（例如 TS7）上測試此選項。比較影片統計中的 `decode p50`，判斷是否有效。下次 CarPlay 連線時套用。</string>
+    <string name="settings_h264_frame_end_marker_off">關閉</string>
+    <string name="settings_h264_frame_end_marker_append">附加在畫面後</string>
+    <string name="settings_h264_frame_end_marker_separate">獨立送出</string>
     <string name="settings_fps_counter">FPS 計數器</string>
     <string name="settings_fps_counter_description">在 CarPlay 右上角顯示計數器：每秒顯示的幀數（50 以上為綠色，30 以上為黃色，低於 30 為紅色）、每秒從 iPhone 接收的幀數以及解碼時間。畫面靜止時幀數很少，因為 iPhone 不會傳送幀。</string>
     <string name="manual_grant_cmd_hint">或在電腦上執行以下 ADB 指令：</string>

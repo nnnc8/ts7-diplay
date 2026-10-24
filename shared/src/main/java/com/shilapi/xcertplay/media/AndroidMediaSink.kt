@@ -221,6 +221,8 @@ class AndroidMediaSink(
     private val mtkDecoderTuningEnabled: Boolean = false,
     /** Declare no frame reordering in the main screen's H.264 SPS ([H264LowDelaySps]). */
     private val lowDelayH264Sps: Boolean = false,
+    /** Append or separately queue an H.264 access-unit delimiter on the main screen. */
+    private val h264FrameEndMarker: H264FrameEndMarkerMode = H264FrameEndMarkerMode.OFF,
 ) : MediaSink {
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
     private val callEchoReferences = ConcurrentHashMap<AudioStreamId, EchoReference>()
@@ -695,6 +697,8 @@ class AndroidMediaSink(
         // cluster have separate timing and must retain their established decoder configuration.
         mtkDecoderTuningEnabled = mtkDecoderTuningEnabled && type == MAIN_SCREEN_TYPE && statsLabel == null,
         lowDelaySps = lowDelayH264Sps && type == MAIN_SCREEN_TYPE && statsLabel == null,
+        frameEndMarker = h264FrameEndMarker.takeIf { type == MAIN_SCREEN_TYPE && statsLabel == null }
+            ?: H264FrameEndMarkerMode.OFF,
     ).also { if (startImmediately) it.start() }
 
     @Synchronized
@@ -901,6 +905,7 @@ private class VideoDecoder(
      * hold decoded frames for reordering releases each at once. Dropped for the stream once a B slice arrives.
      */
     lowDelaySps: Boolean = false,
+    frameEndMarker: H264FrameEndMarkerMode = H264FrameEndMarkerMode.OFF,
 ) : Closeable {
     private val pacer = FramePacer()
     private val pacingDelay = if (pacingDelayNanos > 0) PacingDelay(pacingDelayNanos) else null
@@ -939,6 +944,8 @@ private class VideoDecoder(
     // Low-delay SPS still asked for, and whether the current codec was configured with a rewritten SPS.
     private var lowDelaySpsActive = lowDelaySps
     private var configuredLowDelaySps = false
+    private var configuredLowDelaySpsKind: H264LowDelaySps.RewriteKind? = null
+    private var frameEndMarkerActive = frameEndMarker
     // Whether the vendor low-latency parameters were set on the codec being configured.
     private var configuredVendorLowLatency = false
     // Likewise the low-latency decoder, not tried again once another decoder had to take over; and what the
@@ -1100,6 +1107,7 @@ private class VideoDecoder(
     private fun onJobFailure(stage: String, error: Exception) {
         if (running) Log.e(TAG, "video decoder job failed: $stage", error)
         if (running) reportFailure("stage=$stage", error)
+        dropFrameEndMarker("codec failed during $stage")
         // MTK vendor failures may surface as CodecException or the broader IllegalStateException.
         // Retire the active experimental mode before recreating the decoder.
         if (error is IllegalStateException) {
@@ -1178,13 +1186,19 @@ private class VideoDecoder(
         val mime = if (codec == VideoCodec.H265) MediaFormat.MIMETYPE_VIDEO_HEVC
         else MediaFormat.MIMETYPE_VIDEO_AVC
         configuredLowDelaySps = false
+        configuredLowDelaySpsKind = null
         val csd = if (codec == VideoCodec.H265) {
             MediaCodecSupport.hevcCodecSpecificData(codecData).takeIf { it.isNotEmpty() }
                 ?.let { listOf(it) } ?: emptyList()
         } else {
             val (originalSps, pps) = MediaCodecSupport.avcParameterSets(codecData)
-            val sps = if (lowDelaySpsActive) H264LowDelaySps.rewrite(originalSps) ?: originalSps else originalSps
-            configuredLowDelaySps = sps !== originalSps
+            val rewrite = if (lowDelaySpsActive) H264LowDelaySps.rewriteWithResult(originalSps) else null
+            rewrite?.let {
+                configuredLowDelaySpsKind = it.kind
+                report(spsDiagnosticLine(it, originalSps))
+            }
+            val sps = rewrite?.rewritten ?: originalSps
+            configuredLowDelaySps = rewrite?.kind == H264LowDelaySps.RewriteKind.REWRITTEN
             listOfNotNull(
                 sps.takeIf { it.isNotEmpty() }?.let { START_CODE + it },
                 pps.takeIf { it.isNotEmpty() }?.let { START_CODE + it },
@@ -1212,6 +1226,7 @@ private class VideoDecoder(
         }
         if (configured == null) {
             queue.discardCurrentChain()
+            dropFrameEndMarker("decoder configuration failed")
             report("decoder configuration failed mime=$mime size=${width}x$height")
         }
         if (nextOperatingRate(requestedRate, used) != requestedRate) dropOperatingRate("refused at configure")
@@ -1240,7 +1255,17 @@ private class VideoDecoder(
             val lowLatency = if (vendorLowLatency) " vendorLowLatency=$configuredVendorLowLatency" else ""
             val output = if (outputThread != null) " outputThread=true" else ""
             val atOnceReport = if (atOnce) " lowLatency=$startedLowLatency pictureOrder=$startedPictureOrder" else ""
-            val lowDelay = if (configuredLowDelaySps) " lowDelaySps=true" else ""
+            val lowDelay = configuredLowDelaySpsKind?.let { kind ->
+                val value = when (kind) {
+                    H264LowDelaySps.RewriteKind.REWRITTEN -> "true"
+                    H264LowDelaySps.RewriteKind.ALREADY_LOW_DELAY -> "already"
+                    H264LowDelaySps.RewriteKind.NOT_SPS, H264LowDelaySps.RewriteKind.UNPARSED -> "unparsed"
+                }
+                " lowDelaySps=$value"
+            } ?: ""
+            val frameEndMarker = frameEndMarkerActive.takeIf {
+                codec == VideoCodec.H264 && it != H264FrameEndMarkerMode.OFF
+            }?.let { " frameEndMarker=${it.key}" } ?: ""
             val mtk = when {
                 configuredMtkCodec2LowLatency -> " mtkTuning=codec2-low-latency"
                 MtkDecoderTuning.isDecoderName(configured.codecName) ->
@@ -1248,12 +1273,47 @@ private class VideoDecoder(
                 else -> ""
             }
             report("decoder=${configured.codecName} mime=$mime size=${width}x$height" +
-                "$rate$lowLatency$output$atOnceReport$lowDelay$mtk")
+                "$rate$lowLatency$output$atOnceReport$lowDelay$frameEndMarker$mtk")
             Log.i(
                 TAG,
                 "video decoder configured name=${configured.codecName} mime=$mime size=${width}x$height$mtk",
             )
         }
+    }
+
+    private fun spsDiagnosticLine(result: H264LowDelaySps.RewriteResult, sps: ByteArray): String {
+        val fields = result.summary
+        val resultName = when (result.kind) {
+            H264LowDelaySps.RewriteKind.REWRITTEN -> "rewritten"
+            H264LowDelaySps.RewriteKind.ALREADY_LOW_DELAY -> "already"
+            H264LowDelaySps.RewriteKind.NOT_SPS -> "not-sps"
+            H264LowDelaySps.RewriteKind.UNPARSED -> "unparsed"
+        }
+        fun present(value: Boolean?): String = value?.toString() ?: "unknown"
+        fun constraint(value: Long?): String = when {
+            value != null -> value.toString()
+            fields.bitstreamRestrictionPresent == false -> "absent"
+            else -> "unknown"
+        }
+        val hex = sps.take(64).joinToString("") { "%02x".format(it.toInt() and 0xff) } +
+            if (sps.size > 64) "..." else ""
+        return "H.264 SPS summary: result=$resultName" +
+            " profile_idc=${fields.profileIdc ?: "unknown"}" +
+            " level_idc=${fields.levelIdc ?: "unknown"}" +
+            " pic_order_cnt_type=${fields.picOrderCntType ?: "unknown"}" +
+            " max_num_ref_frames=${fields.maxNumRefFrames ?: "unknown"}" +
+            " vui_present=${present(fields.vuiPresent)}" +
+            " bitstream_restriction_present=${present(fields.bitstreamRestrictionPresent)}" +
+            " max_num_reorder_frames=${constraint(fields.maxNumReorderFrames)}" +
+            " max_dec_frame_buffering=${constraint(fields.maxDecFrameBuffering)}" +
+            (result.reason?.let { " reason=$it" } ?: "") +
+            " sps=$hex"
+    }
+
+    private fun dropFrameEndMarker(reason: String) {
+        if (frameEndMarkerActive == H264FrameEndMarkerMode.OFF || lastConfig?.codec != VideoCodec.H264) return
+        frameEndMarkerActive = H264FrameEndMarkerMode.OFF
+        report("H.264 frame end marker dropped: $reason")
     }
 
     private fun dropOperatingRate(reason: String) {
@@ -1466,6 +1526,7 @@ private class VideoDecoder(
                 return
             } catch (error: Exception) {
                 Log.w(TAG, "video decoder output surface update failed; reconfiguring", error)
+                dropFrameEndMarker("surface update failed")
             }
         }
         releaseDecoder()
@@ -1481,7 +1542,11 @@ private class VideoDecoder(
         val annexB = MediaCodecSupport.toAnnexB(nalus)
         if (outputSurface == null) return
         if (annexB.isEmpty()) { recover("invalid video access unit"); return }
-        if (!referenceChain.accepts(annexB, config.codec)) {
+        val markerMode = frameEndMarkerActive.takeIf { config.codec == VideoCodec.H264 }
+            ?: H264FrameEndMarkerMode.OFF
+        val prepared = H264FrameEndMarkerBytes.prepare(annexB, markerMode)
+        if (prepared.frameBytes.isEmpty()) { recover("empty video access unit after H.264 marker handling"); return }
+        if (!referenceChain.accepts(prepared.referenceBytes, config.codec)) {
             requestKeyFrameIfDue()
             return
         }
@@ -1500,7 +1565,7 @@ private class VideoDecoder(
             submittedFrameLogged = true
             Log.i(
                 TAG,
-                "video decoder first input avcc=${nalus.size} annexB=${annexB.size}",
+                "video decoder first input avcc=${nalus.size} annexB=${prepared.frameBytes.size}",
             )
         }
         val index = DecoderInputPump.acquire(
@@ -1515,8 +1580,8 @@ private class VideoDecoder(
         }
         val input = checkNotNull(codec.getInputBuffer(index)) { "Decoder input buffer unavailable" }
         input.clear()
-        if (annexB.size <= input.remaining()) {
-            input.put(annexB)
+        if (prepared.frameBytes.size <= input.remaining()) {
+            input.put(prepared.frameBytes)
             // A paced frame carries its local time; MediaCodec returns it with the decoded output.
             val presentationUs = if (presentNs > 0) presentNs / 1000 else System.nanoTime() / 1000
             // Recorded before queueing: the output thread may dequeue the frame as soon as it is queued.
@@ -1539,13 +1604,25 @@ private class VideoDecoder(
                 }
                 queuedSlot = (queuedSlot + 1) % queuedPresentationUs.size
             }
-            codec.queueInputBuffer(index, 0, annexB.size, presentationUs, 0)
+            codec.queueInputBuffer(index, 0, prepared.frameBytes.size, presentationUs, 0)
             referenceChain.onQueued()
+            prepared.separateMarker?.let { queueSeparateMarker(codec, presentationUs, it) }
         } else {
             recover("video frame exceeded codec input capacity")
             return
         }
         if (outputThread == null) drainOutput(codec)
+    }
+
+    /** Queue the AUD without waiting; this buffer is not a decoded frame and gets no bookkeeping slot. */
+    private fun queueSeparateMarker(codec: MediaCodec, presentationUs: Long, marker: ByteArray) {
+        val index = codec.dequeueInputBuffer(0)
+        if (index < 0) return
+        val input = checkNotNull(codec.getInputBuffer(index)) { "Decoder marker input buffer unavailable" }
+        input.clear()
+        check(input.remaining() >= marker.size) { "Decoder marker input buffer too small" }
+        input.put(marker)
+        codec.queueInputBuffer(index, 0, marker.size, presentationUs, 0)
     }
 
     /** [nalus] with in-band SPS rewritten like the configured one; null when B slices end low delay. */
@@ -1560,6 +1637,7 @@ private class VideoDecoder(
 
     private fun recover(reason: String) {
         Log.w(TAG, "Video recovery: $reason; waiting for keyframe")
+        dropFrameEndMarker("recovery: $reason")
         stats.onRecovery()
         report("recovery: $reason; waiting for keyframe")
         // Recreate with codec-specific data: flush can discard CSD before the first output.

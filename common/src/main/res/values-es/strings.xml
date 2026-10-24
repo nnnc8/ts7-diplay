@@ -693,6 +693,11 @@
     <string name="settings_low_latency_decoder_description">Pide a los decodificadores de vídeo de Qualcomm que entreguen cada fotograma en cuanto se decodifica, en lugar de retener los siguientes, y muestra cada fotograma decodificado desde un hilo dedicado sin esperar a que llegue el siguiente. Puede reducir el retardo en decenas de milisegundos. Desactívalo si la imagen muestra artefactos o se congela. Se aplica en la próxima conexión.</string>
     <string name="settings_low_delay_h264_sps">Salida H.264 sin reordenación (experimental)</string>
     <string name="settings_low_delay_h264_sps_description">Indica al decodificador de vídeo que el H.264 de CarPlay no tiene fotogramas reordenados, para mostrar cada uno en cuanto se decodifica en vez de retenerlo. Reduce el retardo de vídeo en decodificadores como el del TS7. Se desactiva durante la sesión si el iPhone envía fotogramas reordenados. Está activado de forma predeterminada en el TS7. Se aplica en la próxima conexión de CarPlay.</string>
+    <string name="settings_h264_frame_end_marker">Marcador de fin de fotograma H.264 (experimental)</string>
+    <string name="settings_h264_frame_end_marker_description">Prueba esta opción en decodificadores que retienen cada fotograma, como el TS7. Compara `decode p50` en las estadísticas de vídeo para valorar si mejora. Se aplica en la próxima conexión de CarPlay.</string>
+    <string name="settings_h264_frame_end_marker_off">Desactivado</string>
+    <string name="settings_h264_frame_end_marker_append">Añadir a cada fotograma</string>
+    <string name="settings_h264_frame_end_marker_separate">Enviar por separado</string>
     <string name="settings_fps_counter">Contador de FPS</string>
     <string name="settings_fps_counter_description">Muestra un contador en la esquina superior derecha de CarPlay: fotogramas mostrados por segundo (verde desde 50, amarillo desde 30, rojo por debajo), fotogramas recibidos del iPhone por segundo y el tiempo de decodificación. Una pantalla quieta muestra pocos fotogramas porque el iPhone no envía ninguno.</string>
     <string name="car_button_in_carplay">Botón del coche en CarPlay</string>

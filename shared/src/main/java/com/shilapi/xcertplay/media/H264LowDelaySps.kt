@@ -15,6 +15,26 @@ package com.shilapi.xcertplay.media
 object H264LowDelaySps {
     private const val NAL_SPS = 7
 
+    enum class RewriteKind { REWRITTEN, ALREADY_LOW_DELAY, NOT_SPS, UNPARSED }
+
+    data class SpsSummary(
+        val profileIdc: Int? = null,
+        val levelIdc: Int? = null,
+        val picOrderCntType: Int? = null,
+        val maxNumRefFrames: Long? = null,
+        val vuiPresent: Boolean? = null,
+        val bitstreamRestrictionPresent: Boolean? = null,
+        val maxNumReorderFrames: Long? = null,
+        val maxDecFrameBuffering: Long? = null,
+    )
+
+    data class RewriteResult(
+        val kind: RewriteKind,
+        val rewritten: ByteArray? = null,
+        val reason: String? = null,
+        val summary: SpsSummary = SpsSummary(),
+    )
+
     // Profiles whose SPS carries chroma_format_idc and the scaling matrices (H.264 7.3.2.1.1).
     private val HIGH_PROFILES = setOf(100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135)
 
@@ -23,18 +43,31 @@ object H264LowDelaySps {
     private const val INFERRED_MAX_BITS_PER_MB_DENOM = 1L
     private const val INFERRED_LOG2_MAX_MV_LENGTH = 15L
 
-    /**
-     * [sps] is one SPS NAL unit with its one-byte header and no start code.
-     * Returns the rewritten NAL unit, or null when it already declares no reordering or cannot be parsed.
-     */
-    fun rewrite(sps: ByteArray): ByteArray? {
-        if (sps.size < 4 || (sps[0].toInt() and 0x1f) != NAL_SPS) return null
+    /** [sps] is one SPS NAL unit with its one-byte header and no start code. */
+    fun rewriteWithResult(sps: ByteArray): RewriteResult {
+        if (sps.isEmpty() || (sps[0].toInt() and 0x1f) != NAL_SPS) {
+            return RewriteResult(RewriteKind.NOT_SPS, reason = "not an SPS")
+        }
+        if (sps.size < 4) return RewriteResult(RewriteKind.UNPARSED, reason = "truncated SPS")
+        val summary = SummaryBuilder()
         return try {
-            rewriteRbsp(unescape(sps, 1, sps.size))?.let { byteArrayOf(sps[0]) + escape(it) }
-        } catch (_: MalformedSps) {
-            null
+            val rewritten = rewriteRbsp(unescape(sps, 1, sps.size), summary)
+            if (rewritten == null) {
+                RewriteResult(RewriteKind.ALREADY_LOW_DELAY, summary = summary.build())
+            } else {
+                RewriteResult(
+                    RewriteKind.REWRITTEN,
+                    rewritten = byteArrayOf(sps[0]) + escape(rewritten),
+                    summary = summary.build(),
+                )
+            }
+        } catch (error: MalformedSps) {
+            RewriteResult(RewriteKind.UNPARSED, reason = error.message, summary = summary.build())
         }
     }
+
+    /** Returns the rewritten NAL unit, or null when it is already low-delay or cannot be parsed. */
+    fun rewrite(sps: ByteArray): ByteArray? = rewriteWithResult(sps).rewritten
 
     /**
      * Rewrites every SPS in an access unit or codec-specific data, either Annex B or 4-byte length-prefixed.
@@ -96,7 +129,23 @@ object H264LowDelaySps {
         return sliceType % 5 == 1L
     }
 
-    private class MalformedSps : Exception()
+    private class SummaryBuilder {
+        var profileIdc: Int? = null
+        var levelIdc: Int? = null
+        var picOrderCntType: Int? = null
+        var maxNumRefFrames: Long? = null
+        var vuiPresent: Boolean? = null
+        var bitstreamRestrictionPresent: Boolean? = null
+        var maxNumReorderFrames: Long? = null
+        var maxDecFrameBuffering: Long? = null
+
+        fun build() = SpsSummary(
+            profileIdc, levelIdc, picOrderCntType, maxNumRefFrames, vuiPresent,
+            bitstreamRestrictionPresent, maxNumReorderFrames, maxDecFrameBuffering,
+        )
+    }
+
+    private class MalformedSps(reason: String) : Exception(reason)
 
     private class NalUnit(val start: Int, val end: Int, val type: Int)
 
@@ -153,7 +202,7 @@ object H264LowDelaySps {
     }
 
     /** Returns the rewritten RBSP, or null when the SPS already allows immediate output. */
-    private fun rewriteRbsp(rbsp: ByteArray): ByteArray? {
+    private fun rewriteRbsp(rbsp: ByteArray, summary: SummaryBuilder): ByteArray? {
         val r = BitReader(rbsp)
         val w = BitWriter(rbsp.size + 8)
         fun bits(count: Int): Long = r.bits(count).also { w.bits(it, count) }
@@ -161,8 +210,9 @@ object H264LowDelaySps {
         fun se() { w.se(r.se()) }
 
         val profile = bits(8).toInt()
+        summary.profileIdc = profile
         bits(8) // constraint_set flags and reserved_zero_2bits
-        bits(8) // level_idc
+        summary.levelIdc = bits(8).toInt() // level_idc
         ue() // seq_parameter_set_id
         if (profile in HIGH_PROFILES) {
             val chromaFormat = ue()
@@ -177,18 +227,21 @@ object H264LowDelaySps {
             }
         }
         ue() // log2_max_frame_num_minus4
-        when (ue()) { // pic_order_cnt_type
-            0L -> ue() // log2_max_pic_order_cnt_lsb_minus4
-            1L -> {
+        val picOrderCntType = ue().toInt()
+        summary.picOrderCntType = picOrderCntType
+        when (picOrderCntType) { // pic_order_cnt_type
+            0 -> ue() // log2_max_pic_order_cnt_lsb_minus4
+            1 -> {
                 bits(1) // delta_pic_order_always_zero_flag
                 se() // offset_for_non_ref_pic
                 se() // offset_for_top_to_bottom_field
                 val cycle = ue()
-                if (cycle > 255) throw MalformedSps()
+                if (cycle > 255) throw MalformedSps("pic_order_cnt cycle exceeds 255")
                 repeat(cycle.toInt()) { se() } // offset_for_ref_frame
             }
         }
         val maxNumRefFrames = ue()
+        summary.maxNumRefFrames = maxNumRefFrames
         bits(1) // gaps_in_frame_num_value_allowed_flag
         ue() // pic_width_in_mbs_minus1
         ue() // pic_height_in_map_units_minus1
@@ -198,8 +251,10 @@ object H264LowDelaySps {
 
         val maxDecFrameBuffering = maxOf(1L, maxNumRefFrames)
         val vuiPresent = r.bits(1) == 1L
+        summary.vuiPresent = vuiPresent
         w.bits(1, 1)
         if (!vuiPresent) {
+            summary.bitstreamRestrictionPresent = false
             // aspect ratio, overscan, video signal, chroma location, timing, NAL HRD, VCL HRD, pic_struct
             w.bits(0, 8)
             writeRestriction(w, true, INFERRED_MAX_BYTES_PER_PIC_DENOM, INFERRED_MAX_BITS_PER_MB_DENOM,
@@ -219,7 +274,9 @@ object H264LowDelaySps {
             if (vclHrd) copyHrd(r, w)
             if (nalHrd || vclHrd) bits(1) // low_delay_hrd_flag
             bits(1) // pic_struct_present_flag
-            if (r.bits(1) == 1L) {
+            val restrictionPresent = r.bits(1) == 1L
+            summary.bitstreamRestrictionPresent = restrictionPresent
+            if (restrictionPresent) {
                 val overPicBoundaries = r.bits(1) == 1L
                 val bytesPerPic = r.ue()
                 val bitsPerMb = r.ue()
@@ -227,8 +284,11 @@ object H264LowDelaySps {
                 val mvVertical = r.ue()
                 val reorder = r.ue()
                 val decBuffering = r.ue()
-                if (reorder == 0L) return null
-                if (decBuffering < maxNumRefFrames) throw MalformedSps()
+                summary.maxNumReorderFrames = reorder
+                summary.maxDecFrameBuffering = decBuffering
+                if (decBuffering < maxNumRefFrames) {
+                    throw MalformedSps("max_dec_frame_buffering below max_num_ref_frames")
+                }
                 writeRestriction(w, overPicBoundaries, bytesPerPic, bitsPerMb, mvHorizontal, mvVertical,
                     maxDecFrameBuffering)
             } else {
@@ -236,9 +296,9 @@ object H264LowDelaySps {
                     INFERRED_LOG2_MAX_MV_LENGTH, INFERRED_LOG2_MAX_MV_LENGTH, maxDecFrameBuffering)
             }
         }
-        if (!r.atTrailingBits()) throw MalformedSps()
+        if (!r.atTrailingBits()) throw MalformedSps("trailing bits")
         w.bits(1, 1) // rbsp_stop_one_bit
-        return w.toByteArray()
+        return if (summary.maxNumReorderFrames == 0L) null else w.toByteArray()
     }
 
     private fun writeRestriction(
@@ -275,7 +335,7 @@ object H264LowDelaySps {
 
     private fun copyHrd(r: BitReader, w: BitWriter) {
         val count = r.ue().also { w.ue(it) } // cpb_cnt_minus1
-        if (count > 31) throw MalformedSps()
+        if (count > 31) throw MalformedSps("HRD cpb count exceeds 31")
         w.bits(r.bits(8), 8) // bit_rate_scale, cpb_size_scale
         repeat(count.toInt() + 1) {
             w.ue(r.ue()) // bit_rate_value_minus1
@@ -322,7 +382,8 @@ object H264LowDelaySps {
         private var position = 0
 
         fun bits(count: Int): Long {
-            if (count > 64 || position + count > data.size * 8) throw MalformedSps()
+            if (count > 64) throw MalformedSps("invalid field width")
+            if (position + count > data.size * 8) throw MalformedSps("truncated field")
             var value = 0L
             repeat(count) {
                 val bit = (data[position ushr 3].toInt() ushr (7 - (position and 7))) and 1
@@ -334,7 +395,7 @@ object H264LowDelaySps {
 
         fun ue(): Long {
             var zeros = 0
-            while (bits(1) == 0L) if (++zeros > 31) throw MalformedSps()
+            while (bits(1) == 0L) if (++zeros > 31) throw MalformedSps("Exp-Golomb value too long")
             return (1L shl zeros) - 1 + bits(zeros)
         }
 

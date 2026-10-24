@@ -705,6 +705,11 @@
     <string name="settings_low_latency_decoder_description">Просить відеодекодери Qualcomm видавати кожен кадр одразу після декодування, не утримуючи наступні, і показує кожен декодований кадр з окремого потоку, не чекаючи надходження наступного. Може зменшити затримку на десятки мілісекунд. Вимкніть, якщо на зображенні з’являються артефакти або воно зависає. Застосовується під час наступного підключення.</string>
     <string name="settings_low_delay_h264_sps">Виведення H.264 без зміни порядку (експериментально)</string>
     <string name="settings_low_delay_h264_sps_description">Повідомляє відеодекодеру, що потік H.264 у CarPlay не містить кадрів зі зміненим порядком, тож кожен кадр відображається одразу після декодування без затримки. Зменшує затримку відео на декодерах, зокрема в TS7. Автоматично вимикається на час сеансу, якщо iPhone надсилає кадри зі зміненим порядком. На TS7 увімкнено типово. Застосовується під час наступного підключення CarPlay.</string>
+    <string name="settings_h264_frame_end_marker">Маркер кінця кадру H.264 (експериментально)</string>
+    <string name="settings_h264_frame_end_marker_description">Перевірте цей режим на декодерах, які затримують кожен кадр, наприклад TS7. Щоб оцінити результат, порівняйте `decode p50` у статистиці відео. Застосовується під час наступного підключення CarPlay.</string>
+    <string name="settings_h264_frame_end_marker_off">Вимк.</string>
+    <string name="settings_h264_frame_end_marker_append">Додавати до кожного кадру</string>
+    <string name="settings_h264_frame_end_marker_separate">Надсилати окремо</string>
     <string name="settings_fps_counter">Лічильник FPS</string>
     <string name="settings_fps_counter_description">Показує лічильник у правому верхньому куті CarPlay: кадри на екрані за секунду (зелений від 50, жовтий від 30, червоний нижче), кадри від iPhone за секунду і час декодування. На нерухомому екрані кадрів мало, бо iPhone їх не надсилає.</string>
     <string name="car_button_in_carplay">Кнопка автомобіля в CarPlay</string>

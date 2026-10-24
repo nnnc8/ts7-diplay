@@ -58,7 +58,7 @@ class DiagnosticRedactorTest {
         val folder = Files.createTempDirectory("diplay-media-report").toFile()
         try {
             val audio = "audio stats audioType=media codec=AAC_LC rx=215 dropped=0 underruns=+3 queue=2 playing=true maxGapMs=420 sinceRxMs=10 maxWriteMs=22 decoderDroppedTotal=0 outputBuffersTotal=212 ended=true"
-            val video = "Video: video stats rx=29.8fps shown=29.8fps maxGap=150ms kbps=4000 recoveries=0 touch2frame avg=85ms max=110ms n=3 touchSendMax=1ms"
+            val video = "Video: video stats rx=29.8fps shown=29.8fps maxGap=150ms kbps=4000 recoveries=0 touch2frame avg=85ms max=110ms n=3 touchSendMax=1ms touch2shown avg=120ms max=150ms n=3"
             SessionLogFile(folder.resolve("diplay.log")).use {
                 it.reset("started")
                 it.append(audio)

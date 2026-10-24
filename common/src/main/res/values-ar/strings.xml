@@ -693,6 +693,11 @@
     <string name="settings_low_latency_decoder_description">يطلب من أجهزة فك ترميز الفيديو من Qualcomm إخراج كل إطار فور فك ترميزه بدلًا من الاحتفاظ بالإطارات التالية، ويعرض كل إطار مفكوك من سلسلة معالجة مخصصة دون انتظار وصول الإطار التالي. قد يقلل التأخير بعشرات المللي ثانية. أوقفه إذا ظهرت تشوهات في الصورة أو تجمّدت. يُطبَّق عند الاتصال التالي.</string>
     <string name="settings_low_delay_h264_sps">إخراج H.264 دون إعادة ترتيب (تجريبي)</string>
     <string name="settings_low_delay_h264_sps_description">يُخبر مفكك ترميز الفيديو أن H.264 في CarPlay لا يحتوي على إطارات معاد ترتيبها، ليُعرض كل إطار فور فك ترميزه بدلًا من الانتظار. يقلل تأخير الفيديو على مفككات مثل TS7. يُعطّل تلقائيًا لهذه الجلسة إذا أرسل iPhone إطارات معاد ترتيبها. مفعّل افتراضيًا على TS7. يُطبّق عند اتصال CarPlay التالي.</string>
+    <string name="settings_h264_frame_end_marker">علامة نهاية إطار H.264 (تجريبي)</string>
+    <string name="settings_h264_frame_end_marker_description">اختبر هذا الخيار على مفككات الترميز التي تحتفظ بكل إطار، مثل TS7. قارن قيمة `decode p50` في إحصاءات الفيديو لمعرفة مدى التحسن. يُطبَّق عند اتصال CarPlay التالي.</string>
+    <string name="settings_h264_frame_end_marker_off">إيقاف</string>
+    <string name="settings_h264_frame_end_marker_append">إضافة إلى كل إطار</string>
+    <string name="settings_h264_frame_end_marker_separate">إرسال منفصل</string>
     <string name="settings_fps_counter">عداد الإطارات في الثانية</string>
     <string name="settings_fps_counter_description">يعرض عدادًا في الزاوية العلوية اليمنى من CarPlay: الإطارات المعروضة في الثانية (أخضر من 50، أصفر من 30، أحمر أقل من ذلك)، والإطارات المستلمة من iPhone في الثانية، ووقت فك الترميز. تعرض الشاشة الثابتة إطارات قليلة لأن iPhone لا يرسل أي إطارات.</string>
     <string name="car_button_in_carplay">زر السيارة في CarPlay</string>

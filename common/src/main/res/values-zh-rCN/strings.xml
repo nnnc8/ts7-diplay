@@ -753,6 +753,11 @@
     <string name="settings_low_latency_decoder_description">要求高通视频解码器在每一帧解码后立即输出，而不是保留后续帧，并由专用线程立即显示每个已解码的帧，无需等待下一帧到达。可将延迟降低数十毫秒。如果画面出现花屏或卡住，请关闭。下次连接时生效。</string>
     <string name="settings_low_delay_h264_sps">H.264 无重排输出（实验性）</string>
     <string name="settings_low_delay_h264_sps_description">告知视频解码器 CarPlay 的 H.264 不含重排序帧，让每一帧解码后立即显示，不再暂存等待。可降低 TS7 等设备上的视频延迟。如果 iPhone 发送了重排序帧，本次会话会自动关闭此功能。TS7 默认开启。下次连接 CarPlay 时生效。</string>
+    <string name="settings_h264_frame_end_marker">H.264 帧结束标记（实验性）</string>
+    <string name="settings_h264_frame_end_marker_description">在会暂存每一帧的解码器（例如 TS7）上测试此选项。比较视频统计中的 `decode p50`，判断是否有效。下次连接 CarPlay 时生效。</string>
+    <string name="settings_h264_frame_end_marker_off">关闭</string>
+    <string name="settings_h264_frame_end_marker_append">附加在每一帧后</string>
+    <string name="settings_h264_frame_end_marker_separate">单独发送</string>
     <string name="settings_fps_counter">FPS 计数器</string>
     <string name="settings_fps_counter_description">在 CarPlay 右上角显示计数器：每秒显示的帧数（50 及以上为绿色，30 及以上为黄色，低于 30 为红色）、每秒从 iPhone 接收的帧数以及解码时间。画面静止时帧数很少，因为 iPhone 不发送帧。</string>
     <string name="car_button_in_carplay">CarPlay 中的车辆按钮</string>

@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
+import com.shilapi.xcertplay.media.H264FrameEndMarkerMode
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,6 +32,26 @@ class Ts7ProfilePersistenceTest {
         assertFalse(AirPlayPersistence.loadLowDelayH264Sps(context, ts7 = true))
         AirPlayPersistence.saveLowDelayH264Sps(context, enabled = true)
         assertTrue(AirPlayPersistence.loadLowDelayH264Sps(context, ts7 = false))
+    }
+
+    @Test fun fpsDefaultsToSixtyOnlyForTs7AndSavedValueWins() {
+        assertEquals(60, AirPlayPersistence.loadFps(context, ts7 = true))
+        assertEquals(30, AirPlayPersistence.loadFps(context, ts7 = false))
+        assertEquals(60, AirPlayDisplaySettings.sanitizeFps(AirPlayPersistence.loadFps(context, ts7 = true)))
+
+        AirPlayPersistence.saveFps(context, 45)
+        assertEquals(45, AirPlayPersistence.loadFps(context, ts7 = true))
+        assertEquals(45, AirPlayPersistence.loadFps(context, ts7 = false))
+    }
+
+    @Test fun h264FrameEndMarkerDefaultsToAppendOnlyForTs7AndSavedValueWins() {
+        assertEquals(H264FrameEndMarkerMode.APPEND, AirPlayPersistence.loadH264FrameEndMarker(context, ts7 = true))
+        assertEquals(H264FrameEndMarkerMode.OFF, AirPlayPersistence.loadH264FrameEndMarker(context, ts7 = false))
+
+        AirPlayPersistence.saveH264FrameEndMarker(context, H264FrameEndMarkerMode.OFF)
+        assertEquals(H264FrameEndMarkerMode.OFF, AirPlayPersistence.loadH264FrameEndMarker(context, ts7 = true))
+        AirPlayPersistence.saveH264FrameEndMarker(context, H264FrameEndMarkerMode.SEPARATE)
+        assertEquals(H264FrameEndMarkerMode.SEPARATE, AirPlayPersistence.loadH264FrameEndMarker(context, ts7 = false))
     }
 
     @Test fun directVideoOutputDefaultsOnOnlyForTs7AndSavedValueWins() {

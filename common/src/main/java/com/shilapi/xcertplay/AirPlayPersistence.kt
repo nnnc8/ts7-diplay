@@ -17,6 +17,7 @@ import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
+import com.shilapi.xcertplay.media.H264FrameEndMarkerMode
 import com.shilapi.xcertplay.network.Ts7HeadUnit
 import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.transport.LockdownPairRecord
@@ -86,6 +87,7 @@ object AirPlayPersistence {
     private const val KEY_DIRECT_VIDEO_OUTPUT = "direct_video_output"
     private const val KEY_LOW_LATENCY_DECODER = "low_latency_decoder"
     private const val KEY_LOW_DELAY_H264_SPS = "low_delay_h264_sps"
+    private const val KEY_H264_FRAME_END_MARKER = "h264_frame_end_marker"
     private const val KEY_FPS_COUNTER = "fps_counter"
     private const val KEY_CLUSTER_MAP = "cluster_map_enabled"
     private const val KEY_ADB_CLUSTER_ACTIVITY = "adb_cluster_activity_enabled"
@@ -688,9 +690,11 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadFps(context: Context): Int = AirPlayDisplaySettings.sanitizeFps(
+    fun loadFps(context: Context): Int = loadFps(context, Ts7HeadUnit.detected)
+
+    internal fun loadFps(context: Context, ts7: Boolean): Int = AirPlayDisplaySettings.sanitizeFps(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_FPS, 30),
+            .getInt(KEY_FPS, if (ts7) AirPlayDisplaySettings.MAX_FPS else 30),
     )
 
     /** Music buffer for the session's transport. Wireless and wired USB have separate settings. */
@@ -785,6 +789,22 @@ object AirPlayPersistence {
     fun saveLowDelayH264Sps(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_LOW_DELAY_H264_SPS, enabled).apply()
+    }
+
+    fun loadH264FrameEndMarker(context: Context): H264FrameEndMarkerMode =
+        loadH264FrameEndMarker(context, Ts7HeadUnit.detected)
+
+    internal fun loadH264FrameEndMarker(context: Context, ts7: Boolean): H264FrameEndMarkerMode {
+        val default = if (ts7) H264FrameEndMarkerMode.APPEND else H264FrameEndMarkerMode.OFF
+        return H264FrameEndMarkerMode.fromKey(
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_H264_FRAME_END_MARKER, default.key),
+        )
+    }
+
+    fun saveH264FrameEndMarker(context: Context, mode: H264FrameEndMarkerMode) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_H264_FRAME_END_MARKER, mode.key).apply()
     }
 
     fun saveMediaBufferMillis(context: Context, wireless: Boolean, millis: Int) {

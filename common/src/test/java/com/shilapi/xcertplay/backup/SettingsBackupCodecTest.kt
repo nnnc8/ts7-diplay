@@ -22,6 +22,7 @@ class SettingsBackupCodecTest {
     fun exportOmitsSensitiveAndNavigationKeys() {
         prefs("xcertplay_airplay").edit()
             .putInt("display_fps", 60)
+            .putString("h264_frame_end_marker", "separate")
             .putInt("black_corner_radius_dp", 24)
             .putString("identity_private", "secret")
             .putString("manual_hotspot_passphrase", "wifi-pass")
@@ -42,6 +43,7 @@ class SettingsBackupCodecTest {
         assertEquals(SettingsBackupCodec.VERSION, document.getInt("version"))
         val airplay = document.getJSONObject("settings").getJSONObject("xcertplay_airplay")
         assertEquals(60, airplay.getInt("display_fps"))
+        assertEquals("separate", airplay.getString("h264_frame_end_marker"))
         assertEquals(24, airplay.getInt("black_corner_radius_dp"))
         assertTrue(airplay.getBoolean("cluster_map_enabled"))
         assertFalse(airplay.has("manual_hotspot_ssid"))
@@ -62,7 +64,7 @@ class SettingsBackupCodecTest {
     fun importAppliesKnownKeysAndSkipsUnknownOrForbidden() {
         val document = """
             {"format": "diplay-settings", "version": 1, "settings": {
-              "xcertplay_airplay": {"display_fps": 48, "brand_new_key": 7, "manual_hotspot_passphrase": "x",
+              "xcertplay_airplay": {"display_fps": 48, "h264_frame_end_marker": "append", "brand_new_key": 7, "manual_hotspot_passphrase": "x",
                 "pairing.attacker": "00ff"},
               "diplay": {"auto_connect": true, "page": "about"},
               "carplay_picture": {"brightness": 66}
@@ -70,9 +72,10 @@ class SettingsBackupCodecTest {
         """.trimIndent()
         val outcome = SettingsBackupCodec.import(context, document.toByteArray())
         assertEquals(false, outcome.invalid)
-        assertEquals(3, outcome.applied)
+        assertEquals(4, outcome.applied)
         assertEquals(4, outcome.skipped)
         assertEquals(48, prefs("xcertplay_airplay").getInt("display_fps", 0))
+        assertEquals("append", prefs("xcertplay_airplay").getString("h264_frame_end_marker", null))
         assertFalse(prefs("xcertplay_airplay").contains("manual_hotspot_passphrase"))
         // Only listed settings travel: an imported file cannot add an iPhone pairing key or any unknown key.
         assertFalse(prefs("xcertplay_airplay").contains("pairing.attacker"))
@@ -140,6 +143,7 @@ class SettingsBackupCodecTest {
             .putBoolean("temporary_system_bars", true)
             .putBoolean("hevc_enabled", true)
             .putBoolean("low_delay_h264_sps", true)
+            .putString("h264_frame_end_marker", "separate")
             .putString("manual_hotspot_ssid", "car-ap")
             .putFloat("ui_scale_percent", 100f)
             .apply()
@@ -150,6 +154,7 @@ class SettingsBackupCodecTest {
             .putBoolean("temporary_system_bars", false)
             .putBoolean("hevc_enabled", false)
             .putBoolean("low_delay_h264_sps", false)
+            .putString("h264_frame_end_marker", "off")
             .putString("manual_hotspot_ssid", "changed")
             .putFloat("ui_scale_percent", 120f)
             .apply()
@@ -161,6 +166,7 @@ class SettingsBackupCodecTest {
         assertTrue(airplay.getBoolean("temporary_system_bars", false))
         assertEquals(true, airplay.getBoolean("hevc_enabled", false))
         assertEquals(true, airplay.getBoolean("low_delay_h264_sps", false))
+        assertEquals("separate", airplay.getString("h264_frame_end_marker", null))
         // The car's hotspot name is not part of a backup.
         assertEquals("changed", airplay.getString("manual_hotspot_ssid", ""))
         assertEquals(100f, airplay.getFloat("ui_scale_percent", 0f))

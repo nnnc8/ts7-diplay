@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -64,6 +65,34 @@ class H264LowDelaySpsTest {
         assertNull(H264LowDelaySps.rewrite(appleHigh.copyOf(6)))
         assertNull(H264LowDelaySps.rewrite(hex("2801020304"))) // a PPS
         assertNull(H264LowDelaySps.rewrite(appleHigh + byteArrayOf(0x55))) // data after the stop bit
+    }
+
+    @Test fun detailedResultDistinguishesRewrittenAlreadyUnparsedAndNonSpsInputs() {
+        val rewritten = H264LowDelaySps.rewriteWithResult(appleHigh)
+        assertEquals(H264LowDelaySps.RewriteKind.REWRITTEN, rewritten.kind)
+        assertNotNull(rewritten.rewritten)
+        assertEquals(100, rewritten.summary.profileIdc)
+        assertEquals(31, rewritten.summary.levelIdc)
+        assertEquals(false, rewritten.summary.vuiPresent)
+        assertEquals(false, rewritten.summary.bitstreamRestrictionPresent)
+
+        val lowDelay = SpsFields(
+            profile = 66, level = 31, refFrames = 1, widthMbs = 80, heightMbs = 45,
+            vui = Vui(restriction = Restriction(reorder = 0, decBuffering = 1)),
+        ).nal()
+        val already = H264LowDelaySps.rewriteWithResult(lowDelay)
+        assertEquals(H264LowDelaySps.RewriteKind.ALREADY_LOW_DELAY, already.kind)
+        assertNull(already.rewritten)
+        assertEquals(0L, already.summary.maxNumReorderFrames)
+        assertEquals(1L, already.summary.maxDecFrameBuffering)
+
+        val malformed = H264LowDelaySps.rewriteWithResult(appleHigh + byteArrayOf(0x55))
+        assertEquals(H264LowDelaySps.RewriteKind.UNPARSED, malformed.kind)
+        assertEquals("trailing bits", malformed.reason)
+
+        val notSps = H264LowDelaySps.rewriteWithResult(hex("2801020304"))
+        assertEquals(H264LowDelaySps.RewriteKind.NOT_SPS, notSps.kind)
+        assertEquals("not an SPS", notSps.reason)
     }
 
     @Test fun rewritesOnlyTheSpsOfAnAccessUnitInEitherFraming() {

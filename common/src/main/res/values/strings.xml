@@ -792,6 +792,11 @@
     <string name="settings_low_latency_decoder_description">Asks Qualcomm video decoders to output each frame as soon as it is decoded instead of holding the next ones, and shows each decoded frame from a dedicated thread without waiting for the next one to arrive. Can lower the delay by tens of milliseconds. Turn it off if the picture shows artifacts or freezes. Applies at the next connection.</string>
     <string name="settings_low_delay_h264_sps">No-reorder H.264 output (experimental)</string>
     <string name="settings_low_delay_h264_sps_description">Tells the video decoder that CarPlay\'s H.264 has no reordered frames, so each frame is shown as soon as it is decoded instead of being held back. Reduces video delay on decoders such as TS7\'s. Turns itself off for the session if the iPhone sends reordered frames. On by default on the TS7. Applies at the next CarPlay connection.</string>
+    <string name="settings_h264_frame_end_marker">H.264 frame end marker (experimental)</string>
+    <string name="settings_h264_frame_end_marker_description">Test this on decoders that hold each frame, such as the TS7. Compare `decode p50` in the video stats to judge whether it helps. Applies at the next CarPlay connection.</string>
+    <string name="settings_h264_frame_end_marker_off">Off</string>
+    <string name="settings_h264_frame_end_marker_append">Append to each frame</string>
+    <string name="settings_h264_frame_end_marker_separate">Send separately</string>
     <string name="settings_fps_counter">FPS counter</string>
     <string name="settings_fps_counter_description">Shows a counter in the top-right corner of CarPlay: frames shown per second (green from 50, yellow from 30, red below), frames received from the iPhone per second, and the decode time. A still screen shows few frames because the iPhone sends none.</string>
     <string name="fps_counter_text" translatable="false">%1$d FPS\nRX %2$d · %3$s</string>

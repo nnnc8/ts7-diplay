@@ -72,6 +72,7 @@ import com.shilapi.xcertplay.media.AmbientIdleBehavior
 import com.shilapi.xcertplay.media.AmbientMusicController
 import com.shilapi.xcertplay.media.AmbientColorSource
 import com.shilapi.xcertplay.media.AmbientMusicSettings
+import com.shilapi.xcertplay.media.H264FrameEndMarkerMode
 import com.shilapi.xcertplay.media.MtkDecoderTuning
 import com.shilapi.xcertplay.network.CarHotspotConfigRead
 import com.shilapi.xcertplay.network.CarHotspotConfigWrite
@@ -2012,6 +2013,24 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 getString(R.string.settings_low_delay_h264_sps_description),
                 AirPlayPersistence.loadLowDelayH264Sps(this)) {
                 AirPlayPersistence.saveLowDelayH264Sps(this, it)
+                markReconnectNeeded()
+            }
+            val frameEndMarker = AirPlayPersistence.loadH264FrameEndMarker(this)
+            choice(
+                card,
+                getString(R.string.settings_h264_frame_end_marker),
+                listOf(
+                    getString(R.string.settings_h264_frame_end_marker_off),
+                    getString(R.string.settings_h264_frame_end_marker_append),
+                    getString(R.string.settings_h264_frame_end_marker_separate),
+                ),
+                H264FrameEndMarkerMode.entries.indexOf(frameEndMarker),
+                reconnects = false,
+                announcesReconnect = false,
+                description = getString(R.string.settings_h264_frame_end_marker_description),
+                wrapContentHeight = true,
+            ) {
+                AirPlayPersistence.saveH264FrameEndMarker(this, H264FrameEndMarkerMode.entries[it])
                 markReconnectNeeded()
             }
             toggle(card, getString(R.string.call_echo_cancellation), getString(R.string.call_echo_cancellation_description),
@@ -5865,6 +5884,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("Media-key audio focus: ${if (AirPlayPersistence.loadDisableMediaKeyAudioFocus(appContext)) "disabled" else "enabled"}")
         appendLine("MTK decoder tuning preference: ${if (AirPlayPersistence.loadMtkDecoderTuning(appContext)) "enabled" else "disabled"}")
         appendLine("Low-delay H.264 SPS preference: ${if (AirPlayPersistence.loadLowDelayH264Sps(appContext)) "enabled" else "disabled"}")
+        appendLine("H.264 frame end marker preference: ${AirPlayPersistence.loadH264FrameEndMarker(appContext).key}")
         appendLine("CarPlay size: ${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
         appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
         appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
@@ -6342,9 +6362,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     // [announcesReconnect] labels a choice whose [save] reconnects by itself.
     private fun choice(parent: LinearLayout, title: String, options: List<String>, current: Int, reconnects: Boolean = true,
-        announcesReconnect: Boolean = reconnects, enabled: Boolean = true, save: (Int) -> Unit) {
+        announcesReconnect: Boolean = reconnects, enabled: Boolean = true, description: String? = null,
+        wrapContentHeight: Boolean = false, save: (Int) -> Unit) {
         var selection = current
         val button = button("$title · ${options[selection]}", false) {}.apply { isEnabled = enabled }
+        if (wrapContentHeight) {
+            button.tag = WRAP_CONTENT_CONTROL
+            button.setPadding(dp(16), dp(8), dp(16), dp(8))
+            button.minimumHeight = dp(CONTROL_HEIGHT_DP)
+        }
         button.setOnClickListener {
             var pendingSelection = selection
             appDialogBuilder().setTitle(title)
@@ -6360,7 +6386,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     }
                 }.setNegativeButton(getString(R.string.cancel), null).show()
         }
-        parent.addView(button, matchButton(0, 60)); parent.addView(space(12))
+        parent.addView(button, if (wrapContentHeight) LinearLayout.LayoutParams(-1, -2) else matchButton(0, 60))
+        description?.let { parent.addView(label(it, 14, MUTED).apply { setPadding(0, dp(NOTE_ATTACH_GAP_DP), 0, 0) }) }
+        parent.addView(space(CONTROL_GAP_DP))
     }
     private fun card() = column().apply { background = rounded(SURFACE, BORDER); setPadding(dp(24), dp(24), dp(24), dp(24)) }
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }
@@ -6613,7 +6641,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             val lp = child.layoutParams as? LinearLayout.LayoutParams ?: continue
             when {
                 child is Button -> {
-                    lp.height = dp(CONTROL_HEIGHT_DP); lp.topMargin = 0
+                    lp.height = if (child.tag == WRAP_CONTENT_CONTROL) ViewGroup.LayoutParams.WRAP_CONTENT
+                        else dp(CONTROL_HEIGHT_DP)
+                    lp.topMargin = 0
                     lp.bottomMargin = dp(if (isNote(next)) NOTE_ATTACH_GAP_DP else CONTROL_GAP_DP)
                 }
                 // Toggle rows carried their own vertical padding, which doubled the gap after a button.
@@ -6802,6 +6832,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         private const val VALUE_SEPARATOR = " · "
         private const val SEARCH_HIGHLIGHT_MILLIS = 900L
         private const val SPACER = "spacer"
+        private const val WRAP_CONTENT_CONTROL = "settings_wrap_content_control"
         private const val CONTROL_HEIGHT_DP = 60
         private const val CONTROL_GAP_DP = 12
         private const val GROUP_GAP_DP = 20
