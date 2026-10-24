@@ -2008,6 +2008,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveLowLatencyDecoder(this, it)
                 markReconnectNeeded()
             }
+            toggle(card, getString(R.string.settings_low_delay_h264_sps),
+                getString(R.string.settings_low_delay_h264_sps_description),
+                AirPlayPersistence.loadLowDelayH264Sps(this)) {
+                AirPlayPersistence.saveLowDelayH264Sps(this, it)
+                markReconnectNeeded()
+            }
             toggle(card, getString(R.string.call_echo_cancellation), getString(R.string.call_echo_cancellation_description),
                 AirPlayPersistence.loadCallEchoCancellation(this)) {
                 AirPlayPersistence.saveCallEchoCancellation(this, it)
@@ -3469,22 +3475,32 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun wirelessLinkControls(parent: LinearLayout) {
         val mode = if (pendingCarHotspotSetup) WirelessHotspotMode.MANUAL else AirPlayPersistence.loadWirelessHotspotMode(this)
-        val modes = listOf(WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P, WirelessHotspotMode.EXISTING_WIFI)
-        val titles = listOf(getString(R.string.settings_built_in_car_hotspot_recommended), getString(R.string.wifi_direct), getString(R.string.existing_wifi_title))
-        val descriptions = listOf(
-            getString(R.string.hotspot_mode_manual_desc),
-            getString(R.string.hotspot_mode_p2p_desc),
-            getString(R.string.existing_wifi_description)
-        )
+        val modes = buildList {
+            add(WirelessHotspotMode.MANUAL)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(WirelessHotspotMode.WIFI_P2P)
+            add(WirelessHotspotMode.EXISTING_WIFI)
+        }
         val wide = resources.configuration.screenWidthDp >= 850
         val choices = if (wide) row().apply { gravity = Gravity.TOP } else column()
         parent.addView(choices)
         modes.forEachIndexed { index, candidate ->
+            val title = when (candidate) {
+                WirelessHotspotMode.MANUAL -> getString(R.string.settings_built_in_car_hotspot_recommended)
+                WirelessHotspotMode.WIFI_P2P -> getString(R.string.wifi_direct)
+                WirelessHotspotMode.EXISTING_WIFI -> getString(R.string.existing_wifi_title)
+                WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> error("Unsupported hotspot mode")
+            }
+            val description = when (candidate) {
+                WirelessHotspotMode.MANUAL -> getString(R.string.hotspot_mode_manual_desc)
+                WirelessHotspotMode.WIFI_P2P -> getString(R.string.hotspot_mode_p2p_desc)
+                WirelessHotspotMode.EXISTING_WIFI -> getString(R.string.existing_wifi_description)
+                WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> error("Unsupported hotspot mode")
+            }
             val option = column()
             choices.addView(option, if (wide) LinearLayout.LayoutParams(0, -2, 1f).apply {
                 if (index > 0) marginStart = dp(16)
             } else LinearLayout.LayoutParams(-1, -2))
-            option.addView(button("${if (mode == candidate) "✓  " else ""}${titles[index]}", mode == candidate) {
+            option.addView(button("${if (mode == candidate) "✓  " else ""}$title", mode == candidate) {
                 if (candidate == WirelessHotspotMode.MANUAL) {
                     pendingCarHotspotSetup = true
                     render()
@@ -3499,7 +3515,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     applyWirelessLink(candidate)
                 }
             }, matchButton(12, 60))
-            option.addView(label(descriptions[index], 15, MUTED).apply { setPadding(0, dp(6), 0, dp(12)) })
+            option.addView(label(description, 15, MUTED).apply { setPadding(0, dp(6), 0, dp(12)) })
         }
         if (mode == WirelessHotspotMode.MANUAL) {
             parent.addView(label(getString(R.string.hotspot_setup), 22, TEXT, true))
@@ -5847,6 +5863,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
         appendLine("Media-key audio focus: ${if (AirPlayPersistence.loadDisableMediaKeyAudioFocus(appContext)) "disabled" else "enabled"}")
         appendLine("MTK decoder tuning preference: ${if (AirPlayPersistence.loadMtkDecoderTuning(appContext)) "enabled" else "disabled"}")
+        appendLine("Low-delay H.264 SPS preference: ${if (AirPlayPersistence.loadLowDelayH264Sps(appContext)) "enabled" else "disabled"}")
         appendLine("CarPlay size: ${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
         appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
         appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")

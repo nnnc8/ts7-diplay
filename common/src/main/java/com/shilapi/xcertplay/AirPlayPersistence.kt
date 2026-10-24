@@ -17,6 +17,7 @@ import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import java.io.File
@@ -84,6 +85,7 @@ object AirPlayPersistence {
     private const val KEY_MTK_DECODER_TUNING = "mtk_decoder_tuning"
     private const val KEY_DIRECT_VIDEO_OUTPUT = "direct_video_output"
     private const val KEY_LOW_LATENCY_DECODER = "low_latency_decoder"
+    private const val KEY_LOW_DELAY_H264_SPS = "low_delay_h264_sps"
     private const val KEY_FPS_COUNTER = "fps_counter"
     private const val KEY_CLUSTER_MAP = "cluster_map_enabled"
     private const val KEY_ADB_CLUSTER_ACTIVITY = "adb_cluster_activity_enabled"
@@ -373,22 +375,35 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadWirelessHotspotMode(context: Context): WirelessHotspotMode {
+    fun loadWirelessHotspotMode(context: Context): WirelessHotspotMode =
+        loadWirelessHotspotMode(context, Ts7HeadUnit.detected)
+
+    internal fun loadWirelessHotspotMode(context: Context, ts7: Boolean): WirelessHotspotMode {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_WIRELESS_HOTSPOT_MODE, null)
         val mode = WirelessHotspotMode.entries.firstOrNull { it.name == stored }
             ?: WirelessHotspotMode.MANUAL
-        val supported = if (mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT) WirelessHotspotMode.MANUAL else mode
-        if (stored != supported.name) saveWirelessHotspotMode(context, supported)
+        val supported = supportedWirelessHotspotMode(mode, ts7)
+        if (stored != supported.name) saveWirelessHotspotMode(context, supported, ts7)
         return supported
     }
 
-    fun saveWirelessHotspotMode(context: Context, mode: WirelessHotspotMode) {
-        val supported = if (mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT) WirelessHotspotMode.MANUAL else mode
+    fun saveWirelessHotspotMode(context: Context, mode: WirelessHotspotMode) =
+        saveWirelessHotspotMode(context, mode, Ts7HeadUnit.detected)
+
+    internal fun saveWirelessHotspotMode(context: Context, mode: WirelessHotspotMode, ts7: Boolean) {
+        val supported = supportedWirelessHotspotMode(mode, ts7)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_WIRELESS_HOTSPOT_MODE, supported.name)
             .apply()
     }
+
+    private fun supportedWirelessHotspotMode(mode: WirelessHotspotMode, ts7: Boolean): WirelessHotspotMode =
+        if (mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT || (ts7 && mode == WirelessHotspotMode.WIFI_P2P)) {
+            WirelessHotspotMode.MANUAL
+        } else {
+            mode
+        }
 
     fun loadWifiP2pPreferredChannel(context: Context): Int = runCatching {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -679,14 +694,21 @@ object AirPlayPersistence {
     )
 
     /** Music buffer for the session's transport. Wireless and wired USB have separate settings. */
-    fun loadMediaBufferMillis(context: Context, wireless: Boolean): Int {
+    fun loadMediaBufferMillis(context: Context, wireless: Boolean): Int =
+        loadMediaBufferMillis(context, wireless, Ts7HeadUnit.detected)
+
+    internal fun loadMediaBufferMillis(context: Context, wireless: Boolean, ts7: Boolean): Int {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val shared = prefs.getInt(KEY_MEDIA_BUFFER_MS, com.shilapi.xcertplay.media.MediaAudioBuffer.DEFAULT_MILLIS)
+        val hasSharedValue = prefs.contains(KEY_MEDIA_BUFFER_MS)
+        val default = com.shilapi.xcertplay.media.MediaAudioBuffer.DEFAULT_MILLIS
+        val shared = prefs.getInt(KEY_MEDIA_BUFFER_MS, if (wireless && ts7) 500 else default)
         return if (wireless) {
             com.shilapi.xcertplay.media.MediaAudioBuffer.sanitizeWireless(shared)
         } else {
             // Until wired has its own value, keep the delay saved when one setting covered both transports.
-            com.shilapi.xcertplay.media.MediaAudioBuffer.sanitizeWired(prefs.getInt(KEY_WIRED_MEDIA_BUFFER_MS, shared))
+            com.shilapi.xcertplay.media.MediaAudioBuffer.sanitizeWired(
+                prefs.getInt(KEY_WIRED_MEDIA_BUFFER_MS, if (hasSharedValue) shared else default),
+            )
         }
     }
 
@@ -749,6 +771,17 @@ object AirPlayPersistence {
 
     fun saveLowLatencyDecoder(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_LOW_LATENCY_DECODER, enabled).apply()
+    }
+
+    fun loadLowDelayH264Sps(context: Context): Boolean =
+        loadLowDelayH264Sps(context, Ts7HeadUnit.detected)
+
+    internal fun loadLowDelayH264Sps(context: Context, ts7: Boolean): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LOW_DELAY_H264_SPS, ts7)
+
+    fun saveLowDelayH264Sps(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_LOW_DELAY_H264_SPS, enabled).apply()
     }
 
     fun saveMediaBufferMillis(context: Context, wireless: Boolean, millis: Int) {

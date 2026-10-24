@@ -790,6 +790,8 @@
     <string name="settings_direct_video_output_description">DiPlay画面内に描画せず、車載端末のコンポジターへCarPlay映像を直接送ります。画面更新1回分ほどの遅延を減らせる場合があります。画質調整は適用されません。CarPlayを再接続します。</string>
     <string name="settings_low_latency_decoder">低遅延デコード（実験的機能）</string>
     <string name="settings_low_latency_decoder_description">Qualcomm製の映像デコーダーに対し、フレームを保持せずデコード直後に出力するよう要求します。専用スレッドで次のフレームの到着を待たずに表示し、数十ミリ秒の遅延を減らせる場合があります。映像が乱れたり停止したりする場合はオフにしてください。次回の接続から反映されます。</string>
+    <string name="settings_low_delay_h264_sps">H.264の並べ替えなし出力（実験的機能）</string>
+    <string name="settings_low_delay_h264_sps_description">CarPlayのH.264には並べ替えられたフレームがないことを映像デコーダーに伝え、各フレームを保持せずデコード直後に表示します。TS7などのデコーダーで映像の遅延を減らします。iPhoneが並べ替えられたフレームを送信すると、その接続中は自動的に無効になります。TS7では初期設定でオンです。次回のCarPlay接続から反映されます。</string>
     <string name="settings_fps_counter">FPSカウンター</string>
     <string name="settings_fps_counter_description">CarPlay右上に表示FPS（50以上は緑、30以上は黄、それ未満は赤）、iPhoneからの受信FPS、デコード時間を表示します。静止画面ではiPhoneが送るフレームが少ないため数値も小さくなります。</string>
     <string name="fps_counter_text">%1$d FPS\n受信 %2$d · %3$s</string>

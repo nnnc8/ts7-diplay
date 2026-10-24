@@ -139,6 +139,7 @@ class SettingsBackupCodecTest {
             .putInt("display_fps", 60)
             .putBoolean("temporary_system_bars", true)
             .putBoolean("hevc_enabled", true)
+            .putBoolean("low_delay_h264_sps", true)
             .putString("manual_hotspot_ssid", "car-ap")
             .putFloat("ui_scale_percent", 100f)
             .apply()
@@ -148,6 +149,7 @@ class SettingsBackupCodecTest {
             .putInt("display_fps", 30)
             .putBoolean("temporary_system_bars", false)
             .putBoolean("hevc_enabled", false)
+            .putBoolean("low_delay_h264_sps", false)
             .putString("manual_hotspot_ssid", "changed")
             .putFloat("ui_scale_percent", 120f)
             .apply()
@@ -158,6 +160,7 @@ class SettingsBackupCodecTest {
         assertEquals(60, airplay.getInt("display_fps", 0))
         assertTrue(airplay.getBoolean("temporary_system_bars", false))
         assertEquals(true, airplay.getBoolean("hevc_enabled", false))
+        assertEquals(true, airplay.getBoolean("low_delay_h264_sps", false))
         // The car's hotspot name is not part of a backup.
         assertEquals("changed", airplay.getString("manual_hotspot_ssid", ""))
         assertEquals(100f, airplay.getFloat("ui_scale_percent", 0f))

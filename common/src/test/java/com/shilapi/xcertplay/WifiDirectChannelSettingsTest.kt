@@ -121,12 +121,30 @@ class WifiDirectChannelSettingsTest {
         assertNull(findSwitch(controls(), activity.getString(R.string.settings_wifi_direct_scan_pause)))
     }
 
+    @Test @Config(sdk = [27]) fun connectionSetupHidesWifiDirectBeforeAndroidQ() {
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        assertFalse(hasButton(controls(), activity.getString(R.string.wifi_direct)))
+    }
+
+    @Test fun connectionSetupOffersWifiDirectOnAndroidQAndLater() {
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        assertTrue(hasButton(controls(), activity.getString(R.string.wifi_direct)))
+    }
+
     private fun findSwitch(view: View, title: String): android.widget.Switch? {
         if (view is android.widget.Switch && view.contentDescription == title) return view
         if (view is ViewGroup) for (index in 0 until view.childCount) {
             findSwitch(view.getChildAt(index), title)?.let { return it }
         }
         return null
+    }
+
+    private fun hasButton(view: View, title: String): Boolean {
+        if (view is Button && view.text.toString().contains(title)) return true
+        if (view is ViewGroup) for (index in 0 until view.childCount) {
+            if (hasButton(view.getChildAt(index), title)) return true
+        }
+        return false
     }
 
     private val choices get() = listOf(WifiP2pChannels.AUTO) + WifiP2pChannels.bandChoices + WifiP2pChannels.channels
