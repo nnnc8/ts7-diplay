@@ -5,6 +5,14 @@ import org.junit.Test
 import java.nio.file.Files
 
 class DiagnosticRedactorTest {
+    @Test fun publicSpsBytesSurviveRepeatedReportRedactionWithoutExposingIdentifiers() {
+        val sps = "67 64 00 1f ac 56 80 50 05 b9 " + "aa ".repeat(54).trim()
+        val line = "Video: H.264 SPS summary: result=unparsed profile_idc=100 sps=$sps"
+        assertEquals(line, DiagnosticRedactor.redact(DiagnosticRedactor.redact(line)!!))
+        val identifier = "0123456789abcdef0123456789abcdef"
+        assertFalse(DiagnosticRedactor.redact("Video: id=$identifier")!!.contains(identifier))
+    }
+
     @Test fun additionalTroubleshootingMetadataSurvivesSavedReportWithoutPayloads() {
         val lines = listOf(
             "wireless startup elapsedMs=10000 authenticated=true wifiConfigs=2 startRequests=1 tcpAccepted=0 sessionActive=false waitingFor=WiFi_discovery_or_AirPlay_TCP startRequestAgeMs=9000 firstTcpAfterStartMs=none",

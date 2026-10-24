@@ -143,6 +143,30 @@ class VideoOutputThreadTest {
         }
     }
 
+    @Test fun configurationFailureDisablesTheMarkerForTheDecoderLifetime() {
+        val dropped = CountDownLatch(1)
+        ShadowMediaCodec.addDecoder(MediaFormat.MIMETYPE_VIDEO_AVC,
+            ShadowMediaCodec.CodecConfig(64 * 1024, 64 * 1024, object : ShadowMediaCodec.CodecConfig.Codec {
+                override fun process(input: ByteBuffer, output: ByteBuffer) = Unit
+                override fun onConfigured(format: MediaFormat?, surface: Surface?, crypto: MediaCrypto?, flags: Int) {
+                    throw IllegalStateException("test configure failure")
+                }
+            }))
+        val sink = AndroidMediaSink(surface = null, h264FrameEndMarker = H264FrameEndMarkerMode.APPEND)
+        try {
+            sink.setVideoDiagnosticHandler(MAIN) { message ->
+                if (message.startsWith("H.264 frame end marker dropped: decoder configuration failed")) dropped.countDown()
+            }
+            sink.setSurface(MAIN, Surface(SurfaceTexture(0)))
+            sink.onVideoConfig(MAIN, avcC)
+            assertTrue("configuration failure drops the marker", dropped.await(5, TimeUnit.SECONDS))
+            assertEquals(H264FrameEndMarkerMode.OFF, mainDecoder(sink).field<H264FrameEndMarkerMode>("frameEndMarkerActive"))
+        } finally {
+            sink.close()
+            sink.awaitVideoReleased(5_000)
+        }
+    }
+
     @Test fun rewrittenSpsDiagnosticsExplainTheDecoderInput() {
         val sps = hex("2764001fac56805005b9")
         val pps = byteArrayOf(0x68, 0xce.toByte())
@@ -166,7 +190,7 @@ class VideoOutputThreadTest {
                 it.startsWith("H.264 SPS summary: result=rewritten") &&
                     it.contains("profile_idc=100") && it.contains("level_idc=31") &&
                     it.contains("vui_present=false") && it.contains("bitstream_restriction_present=false") &&
-                    it.contains("sps=2764001fac56805005b9")
+                    it.contains("sps=27 64 00 1f ac 56 80 50 05 b9")
             })
         } finally {
             sink.close()

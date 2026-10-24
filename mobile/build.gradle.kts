@@ -17,7 +17,7 @@ android {
         applicationId = "com.shihab.diplay"
         minSdk = 24
         targetSdk = 37
-        versionCode = 49
+        versionCode = 50
         versionName = "0.2.21"
 
     }
@@ -41,7 +41,7 @@ android {
         debug {
             // The TS7 build: installs beside upstream DiPlay and the wudi81 build.
             applicationIdSuffix = ".ts7"
-            versionNameSuffix = "-ts7-wudi81-v21"
+            versionNameSuffix = "-ts7-wudi81-v21.1"
         }
         release {
             optimization {

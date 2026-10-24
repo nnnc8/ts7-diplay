@@ -1295,7 +1295,7 @@ private class VideoDecoder(
             fields.bitstreamRestrictionPresent == false -> "absent"
             else -> "unknown"
         }
-        val hex = sps.take(64).joinToString("") { "%02x".format(it.toInt() and 0xff) } +
+        val hex = sps.take(64).joinToString(" ") { "%02x".format(it.toInt() and 0xff) } +
             if (sps.size > 64) "..." else ""
         return "H.264 SPS summary: result=$resultName" +
             " profile_idc=${fields.profileIdc ?: "unknown"}" +
@@ -1401,6 +1401,7 @@ private class VideoDecoder(
                 .ifEmpty { attempt.codecName ?: "default" }
             ConfiguredVideoDecoder(codec, configuredName, mtkMode)
         } catch (error: Exception) {
+            dropFrameEndMarker("decoder configuration failed during $phase")
             val phaseMs = (System.nanoTime() - phaseStartNs) / 1_000_000
             val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000
             runCatching { candidate?.release() }.onFailure {
