@@ -543,6 +543,7 @@ class AndroidMediaSink(
             if (config.audioType == "telephony" && !speakerphoneCall) enterCommunicationMode(id)
             val uplink = microphoneUplinks.computeIfAbsent(id) {
                 MicrophoneUplink(config, onAudioDiagnostic,
+                    audioManager = audioManager,
                     speakerphoneCall = speakerphoneCall,
                     echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null)
             }
@@ -725,6 +726,7 @@ class AndroidMediaSink(
                 appContext != null && BydBluetoothSuspend.isSuspendedByUs(appContext),
             echoReference = echoReference,
             voiceFilter = callVoiceFilter && format.audioType == TELEPHONY_AUDIO_TYPE,
+            audioManager = audioManager,
         ).also {
             it.setNavigationAttenuationDb(navigationAttenuationDb)
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
@@ -1754,6 +1756,16 @@ private fun MediaFormat.intOrNull(key: String): Int? =
         }
     }
 
+internal fun audioOutputDiagnostics(
+    nativeRate: () -> Int,
+    framesPerBuffer: () -> String?,
+    decoderName: () -> String?,
+): String = runCatching {
+    val name = decoderName()
+    "nativeRate=${nativeRate()} framesPerBuffer=${framesPerBuffer() ?: "unknown"}" +
+        (name?.let { " decoderName=$it" } ?: "")
+}.getOrDefault("nativeRate=unknown framesPerBuffer=unknown")
+
 /** Decodes AAC-LC/Opus to PCM and plays it, or plays wired LPCM directly. */
 private class AudioRenderer(
     val format: AudioFormat,
@@ -1770,6 +1782,7 @@ private class AudioRenderer(
     /** Receives the played call audio so the call microphone can cancel its echo. */
     private val echoReference: EchoReference? = null,
     voiceFilter: Boolean = false,
+    private val audioManager: AudioManager? = null,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
 
@@ -1788,6 +1801,8 @@ private class AudioRenderer(
     @Volatile private var running = true
     @Volatile private var started = false
     private var codec: MediaCodec? = null
+    private var codecName: String? = null
+    private val codecOutputInfo = MediaCodec.BufferInfo()
     private var track: AudioTrack? = null
     @Volatile private var navigationAttenuationDb = 0
     private var appliedNavigationAttenuationDb: Int? = null
@@ -1967,6 +1982,7 @@ private class AudioRenderer(
                 // A vendor name getter or diagnostic callback must not discard a started codec.
                 runCatching {
                     val name = it.name
+                    codecName = name
                     Log.i(TAG, "audio decoder configured mime=$mime name=$name")
                     report("Audio: decoder ready audioType=${format.audioType} codec=${format.codec} name=$name")
                 }
@@ -2057,11 +2073,19 @@ private class AudioRenderer(
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         // Only music plays long enough for the clocks to drift apart; calls keep their echo reference exact.
         clockTrim = if (mappedChannel == AudioChannel.MEDIA) MediaClockTrim(format.sampleRate, (startThresholdBytes / frameBytes).toLong()) else null
+        val outputMetadata = audioOutputDiagnostics(
+            nativeRate = { AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC) },
+            framesPerBuffer = { audioManager?.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER) },
+            decoderName = {
+                if (format.codec == AudioCodecKind.AAC_LC && codec != null) codecName ?: "unknown" else null
+            },
+        )
         val trackMetadata = runCatching {
             "api=${Build.VERSION.SDK_INT} trackState=${built.state} trackRate=${built.sampleRate} " +
                 "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType} " +
-                "attributesSource=${if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "track" else "configured"}"
-        }.getOrDefault("api=${Build.VERSION.SDK_INT} trackMetadata=unavailable")
+                "attributesSource=${if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "track" else "configured"} " +
+                outputMetadata
+        }.getOrDefault("api=${Build.VERSION.SDK_INT} trackMetadata=unavailable $outputMetadata")
         report("Audio: ready audioType=${format.audioType} codec=${format.codec} " +
             "rate=${format.sampleRate} channels=${format.channels} " +
             "route=$routeLabel " +
@@ -2343,7 +2367,7 @@ private class AudioRenderer(
 
     private fun drainCodec(codec: MediaCodec) {
         diagnosticStage = "decoder-output"
-        val info = MediaCodec.BufferInfo()
+        val info = codecOutputInfo
         while (running) {
             diagnosticStage = "decoder-output"
             val index = codec.dequeueOutputBuffer(info, 0)

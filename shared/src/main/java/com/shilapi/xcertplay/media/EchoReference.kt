@@ -13,6 +13,7 @@ import kotlin.math.sign
 internal class EchoReference(val sampleRate: Int, capacityMillis: Int = 2_000) {
     private val ring = ShortArray(sampleRate * capacityMillis / 1000)
     private var written = 0L
+    private var writeIndex = 0
     private var anchorSample = NOT_PLAYING
     private var anchorNs = 0L
     private var cursor = NOT_PLAYING
@@ -35,7 +36,9 @@ internal class EchoReference(val sampleRate: Int, capacityMillis: Int = 2_000) {
                 val at = base + channel * 2
                 sum += (pcm[at + 1].toInt() shl 8) or (pcm[at].toInt() and 0xff)
             }
-            ring[(written % ring.size).toInt()] = (sum / channels).toShort()
+            ring[writeIndex] = (sum / channels).toShort()
+            writeIndex++
+            if (writeIndex == ring.size) writeIndex = 0
             written++
         }
         if (pendingFrames == null) {
@@ -49,6 +52,7 @@ internal class EchoReference(val sampleRate: Int, capacityMillis: Int = 2_000) {
     @Synchronized
     fun reset() {
         written = 0
+        writeIndex = 0
         anchorSample = NOT_PLAYING
         cursor = NOT_PLAYING
     }
@@ -73,15 +77,18 @@ internal class EchoReference(val sampleRate: Int, capacityMillis: Int = 2_000) {
         val start = steer(estimate)
         cursor = start + out.size
         val oldest = maxOf(0L, written - ring.size)
+        var ringIndex = Math.floorMod(start, ring.size.toLong()).toInt()
         var heard = false
         for (i in out.indices) {
             val sample = start + i
             out[i] = if (sample in oldest until written) {
                 heard = true
-                ring[(sample % ring.size).toInt()]
+                ring[ringIndex]
             } else {
                 0
             }
+            ringIndex++
+            if (ringIndex == ring.size) ringIndex = 0
         }
         return heard
     }

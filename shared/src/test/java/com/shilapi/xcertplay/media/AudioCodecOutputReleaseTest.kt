@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.MediaCodec
 import com.shilapi.xcertplay.airplay.AudioCodecKind
@@ -62,6 +63,7 @@ class AudioCodecOutputReleaseTest {
                 Long::class.javaPrimitiveType -> 0L
                 Boolean::class.javaPrimitiveType -> false
                 EchoReference::class.java -> null
+                AudioManager::class.java -> null
                 else -> {
                     check(parameter.name == "kotlin.jvm.functions.Function1") { "Unexpected renderer parameter: $parameter" }
                     val report: (String) -> Unit = {}

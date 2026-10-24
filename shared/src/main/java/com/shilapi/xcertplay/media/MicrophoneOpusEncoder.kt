@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.os.Build
 import java.io.Closeable
 
 /** Encodes 20 ms chunks of 48 kHz mono PCM into raw Opus access units for the CarPlay microphone uplink. */
@@ -22,10 +23,13 @@ internal object MicrophoneOpusEncoders {
         bitrate: Int,
         platform: (Int) -> MicrophoneOpusEncoder = { OpusEncoder(it) },
         software: (Int) -> MicrophoneOpusEncoder = { SoftwareOpusEncoder(it) },
+        sdkInt: Int = Build.VERSION.SDK_INT,
     ): MicrophoneOpusEncoder? {
-        val platformEncoder = platform(bitrate)
-        if (platformEncoder.available) return platformEncoder
-        platformEncoder.close()
+        if (sdkInt >= Build.VERSION_CODES.Q) {
+            val platformEncoder = platform(bitrate)
+            if (platformEncoder.available) return platformEncoder
+            platformEncoder.close()
+        }
         val softwareEncoder = software(bitrate)
         if (softwareEncoder.available) return softwareEncoder
         softwareEncoder.close()

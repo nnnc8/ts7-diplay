@@ -13,9 +13,19 @@ import kotlin.math.sin
 internal class VoiceFilter(sampleRate: Int, private val channels: Int, cutoffHz: Double = DEFAULT_CUTOFF_HZ) {
     private class Biquad(val b0: Double, val b1: Double, val b2: Double, val a1: Double, val a2: Double)
 
-    private val stages: List<Biquad> = BUTTERWORTH_Q.map { highPass(sampleRate, cutoffHz, it) }
+    private val coefficients = DoubleArray(BUTTERWORTH_Q.size * COEFFICIENTS_PER_STAGE).also { values ->
+        for (stage in BUTTERWORTH_Q.indices) {
+            val biquad = highPass(sampleRate, cutoffHz, BUTTERWORTH_Q[stage])
+            val at = stage * COEFFICIENTS_PER_STAGE
+            values[at] = biquad.b0
+            values[at + 1] = biquad.b1
+            values[at + 2] = biquad.b2
+            values[at + 3] = biquad.a1
+            values[at + 4] = biquad.a2
+        }
+    }
     // Direct form I history per stage and channel: x1, x2, y1, y2.
-    private val state = Array(stages.size * channels) { DoubleArray(4) }
+    private val state = Array(BUTTERWORTH_Q.size * channels) { DoubleArray(4) }
 
     /** Filters 16-bit little-endian interleaved PCM in place. */
     fun process(pcm: ByteArray, offset: Int, length: Int) {
@@ -24,9 +34,12 @@ internal class VoiceFilter(sampleRate: Int, private val channels: Int, cutoffHz:
             for (channel in 0 until channels) {
                 val at = offset + frame * frameBytes + channel * 2
                 var x = ((pcm[at + 1].toInt() shl 8) or (pcm[at].toInt() and 0xff)).toDouble()
-                stages.forEachIndexed { index, stage ->
+                for (index in BUTTERWORTH_Q.indices) {
                     val h = state[index * channels + channel]
-                    val y = stage.b0 * x + stage.b1 * h[0] + stage.b2 * h[1] - stage.a1 * h[2] - stage.a2 * h[3]
+                    val coefficientAt = index * COEFFICIENTS_PER_STAGE
+                    val y = coefficients[coefficientAt] * x + coefficients[coefficientAt + 1] * h[0] +
+                        coefficients[coefficientAt + 2] * h[1] - coefficients[coefficientAt + 3] * h[2] -
+                        coefficients[coefficientAt + 4] * h[3]
                     h[1] = h[0]; h[0] = x
                     h[3] = h[2]; h[2] = y
                     x = y
@@ -54,6 +67,7 @@ internal class VoiceFilter(sampleRate: Int, private val channels: Int, cutoffHz:
 
     companion object {
         const val DEFAULT_CUTOFF_HZ = 200.0
-        private val BUTTERWORTH_Q = listOf(0.5411961, 1.3065630)
+        private val BUTTERWORTH_Q = doubleArrayOf(0.5411961, 1.3065630)
+        private const val COEFFICIENTS_PER_STAGE = 5
     }
 }

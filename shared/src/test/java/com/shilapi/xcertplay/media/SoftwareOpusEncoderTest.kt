@@ -81,16 +81,37 @@ class SoftwareOpusEncoderTest {
     @Test
     fun platformEncoderIsPreferredAndSoftwareIsTheFallback() {
         val platform = FakeEncoder(available = true)
-        assertSame(platform, MicrophoneOpusEncoders.create(48_000, platform = { platform }, software = { error("unused") }))
+        assertSame(platform, MicrophoneOpusEncoders.create(
+            48_000, platform = { platform }, software = { error("unused") }, sdkInt = 29,
+        ))
 
         val missing = FakeEncoder(available = false)
         val software = FakeEncoder(available = true)
-        assertSame(software, MicrophoneOpusEncoders.create(48_000, platform = { missing }, software = { software }))
+        assertSame(software, MicrophoneOpusEncoders.create(
+            48_000, platform = { missing }, software = { software }, sdkInt = 29,
+        ))
         assertTrue(missing.closed)
 
         val brokenSoftware = FakeEncoder(available = false)
-        assertNull(MicrophoneOpusEncoders.create(48_000, platform = { FakeEncoder(false) }, software = { brokenSoftware }))
+        assertNull(MicrophoneOpusEncoders.create(
+            48_000, platform = { FakeEncoder(false) }, software = { brokenSoftware }, sdkInt = 29,
+        ))
         assertTrue(brokenSoftware.closed)
+    }
+
+    @Test
+    fun preAndroidTenUsesSoftwareWithoutCreatingAPlatformEncoder() {
+        var platformCalls = 0
+        var softwareCalls = 0
+        val software = FakeEncoder(available = true)
+        assertSame(software, MicrophoneOpusEncoders.create(
+            48_000,
+            platform = { platformCalls++; error("Platform encoder must not be created") },
+            software = { softwareCalls++; software },
+            sdkInt = 28,
+        ))
+        assertEquals(0, platformCalls)
+        assertEquals(1, softwareCalls)
     }
 
     private fun toneFrame(index: Int): ByteArray {
