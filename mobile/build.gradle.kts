@@ -39,8 +39,9 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".wudi81v18"
-            versionNameSuffix = "-wudi81-v21-mic"
+            // The TS7 build: installs beside upstream DiPlay and the wudi81 build.
+            applicationIdSuffix = ".ts7"
+            versionNameSuffix = "-ts7-wudi81-v21"
         }
         release {
             optimization {
