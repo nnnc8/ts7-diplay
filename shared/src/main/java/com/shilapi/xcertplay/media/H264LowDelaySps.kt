@@ -47,15 +47,16 @@ object H264LowDelaySps {
      * or null when it holds a B slice and so must keep its reordering.
      */
     fun lowDelayAccessUnit(data: ByteArray): ByteArray? {
-        val units = nalUnits(data) ?: return data
-        if (units.any { isBSlice(data, it) }) return null
-        return rewriteUnits(data, units)
+        val framed = nalUnits(data) ?: return data
+        if (framed.units.any { isBSlice(data, it) }) return null
+        return rewriteUnits(data, framed)
     }
 
     /** True when any slice of the access unit is a B slice, so output in decoding order would be wrong. */
-    fun containsBSlice(data: ByteArray): Boolean = nalUnits(data)?.any { isBSlice(data, it) } ?: false
+    fun containsBSlice(data: ByteArray): Boolean = nalUnits(data)?.units?.any { isBSlice(data, it) } ?: false
 
-    private fun rewriteUnits(data: ByteArray, units: List<NalUnit>): ByteArray {
+    private fun rewriteUnits(data: ByteArray, framed: Framed): ByteArray {
+        val units = framed.units
         if (units.none { it.type == NAL_SPS }) return data
         var changed = false
         val rewritten = units.map { unit ->
@@ -63,7 +64,7 @@ object H264LowDelaySps {
             if (unit.type != NAL_SPS) bytes else (rewrite(bytes)?.also { changed = true } ?: bytes)
         }
         if (!changed) return data
-        val annexB = startsWithStartCode(data)
+        val annexB = framed.annexB
         val size = rewritten.sumOf { it.size + 4 }
         val output = ByteArray(size)
         var offset = 0
@@ -99,13 +100,21 @@ object H264LowDelaySps {
 
     private class NalUnit(val start: Int, val end: Int, val type: Int)
 
-    /** NAL unit bounds without start codes or length prefixes, or null when [data] is neither form. */
-    private fun nalUnits(data: ByteArray): List<NalUnit>? =
-        if (startsWithStartCode(data)) annexBUnits(data) else lengthPrefixedUnits(data)
+    private class Framed(val units: List<NalUnit>, val annexB: Boolean)
 
-    private fun startsWithStartCode(data: ByteArray): Boolean =
+    /**
+     * NAL unit bounds without start codes or length prefixes, or null when [data] is neither form. The 4-byte
+     * length of a 256-511 byte NAL reads 00 00 01 xx, like a 3-byte start code, so a 3-byte start code means
+     * Annex B only when [data] is not a whole chain of length-prefixed units.
+     */
+    private fun nalUnits(data: ByteArray): Framed? =
+        if (startsWithStartCode(data, fourBytes = true)) Framed(annexBUnits(data), annexB = true)
+        else lengthPrefixedUnits(data)?.let { Framed(it, annexB = false) }
+            ?: if (startsWithStartCode(data, fourBytes = false)) Framed(annexBUnits(data), annexB = true) else null
+
+    private fun startsWithStartCode(data: ByteArray, fourBytes: Boolean): Boolean =
         data.size >= 4 && data[0].toInt() == 0 && data[1].toInt() == 0 &&
-            (data[2].toInt() == 1 || (data[2].toInt() == 0 && data[3].toInt() == 1))
+            if (fourBytes) data[2].toInt() == 0 && data[3].toInt() == 1 else data[2].toInt() == 1
 
     private fun lengthPrefixedUnits(data: ByteArray): List<NalUnit>? {
         val units = ArrayList<NalUnit>(4)

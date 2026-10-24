@@ -220,7 +220,11 @@ object CarHotspotTethering {
             fun waitForFailureRetry(): Result? {
                 val retryAt = nowNanos() + FAILURE_RETRY_DELAY_MILLIS * 1_000_000L
                 while (nowNanos() < retryAt) {
-                    if (!pause(minOf(deadline, retryAt))) return stopped() ?: Result.TIMED_OUT
+                    // Less than a millisecond short of retryAt also ends the pause; that is time to retry, not a timeout.
+                    if (!pause(minOf(deadline, retryAt))) {
+                        stopped()?.let { return it }
+                        break
+                    }
                     val state = observed(apState())
                     if (state == 13 || (state == null && enabledState() == true)) return Result.READY
                     if (state == 14 && failure() == NO_CHANNEL_FAILURE_REASON) return Result.NO_CHANNEL

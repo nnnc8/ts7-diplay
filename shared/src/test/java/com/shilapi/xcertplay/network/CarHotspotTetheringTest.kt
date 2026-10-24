@@ -285,6 +285,30 @@ class CarHotspotTetheringTest {
         assertEquals(1_750L, clock.nowMillis)
     }
 
+    @Test fun aFailureRetryIsNotCutShortByLeftoverFractionsOfAMillisecond() {
+        // Each pause and status read costs a little more than whole milliseconds, as on a real unit.
+        var nanos = 0L
+        var apState = 11
+        var calls = 0
+        val result = CarHotspotTethering.enableWithRawState(
+            timeoutMillis = 10_000,
+            isCancelled = { false },
+            canWrite = { true },
+            isEnabled = { apState == 13 },
+            rawApState = { apState.also { if (it == 12) apState = 14 } },
+            failureReason = { 2 },
+            nowNanos = { nanos },
+            pauseMillis = { nanos += it * 1_000_000L + 300_000L },
+            start = {
+                calls++
+                apState = 12
+            },
+        )
+
+        assertEquals(Result.FAILED, result)
+        assertEquals(3, calls)
+    }
+
     @Test fun aFailureLeftFromAnEarlierAttemptDoesNotDecideTheNewRequest() {
         val clock = FakeClock()
         var calls = 0

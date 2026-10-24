@@ -96,14 +96,32 @@ class H264LowDelaySpsTest {
     }
 
     @Test fun escapesEmulatedStartCodesInTheRewrittenSet() {
-        // Zero-heavy cropping produces 00 00 0x runs in the RBSP that need emulation prevention.
-        val fields = SpsFields(profile = 66, level = 10, refFrames = 0, widthMbs = 1, heightMbs = 1,
-            crop = intArrayOf(0, 0, 0, 0), frameNumBits = 0)
+        // num_units_in_tick = 1 is 31 zero bits then a one: the RBSP holds 00 00 00, which must be escaped.
+        val fields = SpsFields(profile = 66, level = 10, refFrames = 1, widthMbs = 1, heightMbs = 1,
+            vui = Vui(timing = longArrayOf(1, 2)))
+        val expected = fields.copy(vui = fields.vui!!.copy(restriction = Restriction(reorder = 0, decBuffering = 1))).nal()
         val rewritten = H264LowDelaySps.rewrite(fields.nal())!!
+        assertArrayEquals(expected, rewritten)
+        assertTrue((1 until rewritten.size - 2).any {
+            rewritten[it].toInt() == 0 && rewritten[it + 1].toInt() == 0 && rewritten[it + 2].toInt() == 3
+        })
         for (index in 1 until rewritten.size - 2) {
             assertFalse(rewritten[index].toInt() == 0 && rewritten[index + 1].toInt() == 0 &&
                 (rewritten[index + 2].toInt() and 0xff) <= 2)
         }
+    }
+
+    @Test fun aLengthPrefixLikeAShortStartCodeIsStillReadAsALengthPrefix() {
+        // A 261-byte NAL has the length 00 00 01 05, which also reads as a 3-byte start code.
+        val pSlice = byteArrayOf(0x41, 0x98.toByte()) + ByteArray(259) { 0x55 }
+        val bSlice = byteArrayOf(0x01, 0xA0.toByte()) + ByteArray(287) { 0x55 }
+        val rewritten = H264LowDelaySps.rewrite(appleHigh)!!
+
+        val prefixed = prefix32(pSlice) + prefix32(appleHigh)
+        assertArrayEquals(prefix32(pSlice) + prefix32(rewritten), H264LowDelaySps.rewriteAccessUnit(prefixed))
+        assertFalse(H264LowDelaySps.containsBSlice(prefixed))
+        assertTrue(H264LowDelaySps.containsBSlice(prefix32(bSlice) + prefix32(appleHigh)))
+        assertNull(H264LowDelaySps.lowDelayAccessUnit(prefix32(bSlice)))
     }
 
     private companion object {
@@ -112,6 +130,10 @@ class H264LowDelaySpsTest {
         fun hex(text: String) = ByteArray(text.length / 2) { text.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 
         fun prefix(nal: ByteArray) = byteArrayOf(0, 0, 0, nal.size.toByte()) + nal
+
+        fun prefix32(nal: ByteArray) = byteArrayOf(
+            (nal.size ushr 24).toByte(), (nal.size ushr 16).toByte(), (nal.size ushr 8).toByte(), nal.size.toByte(),
+        ) + nal
     }
 
     private data class Restriction(

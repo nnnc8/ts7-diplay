@@ -12,16 +12,16 @@ import android.os.Build
  */
 object Ts7HeadUnit {
 
-    /** Board and hardware name of the SC7731E reference design the TS7 firmware reports. */
+    /**
+     * Board and hardware name of the SC7731E reference design the TS7 firmware reports (hardware, board and
+     * device are all `sp7731e_1h10`). The manufacturer alone does not count: other Unisoc head units keep `sprd`.
+     */
     private const val PLATFORM = "sp7731e"
 
-    private const val MANUFACTURER = "sprd"
-
-    internal fun matches(hardware: String?, board: String?, device: String?, manufacturer: String?): Boolean =
-        listOf(hardware, board, device).any { it?.lowercase()?.contains(PLATFORM) == true } ||
-            manufacturer?.lowercase() == MANUFACTURER
+    internal fun matches(hardware: String?, board: String?, device: String?): Boolean =
+        listOf(hardware, board, device).any { it?.lowercase()?.contains(PLATFORM) == true }
 
     val detected: Boolean = runCatching {
-        matches(Build.HARDWARE, Build.BOARD, Build.DEVICE, Build.MANUFACTURER)
+        matches(Build.HARDWARE, Build.BOARD, Build.DEVICE)
     }.getOrDefault(false)
 }

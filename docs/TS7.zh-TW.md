@@ -27,7 +27,7 @@ DiPlay 是安卓車機上的無線／有線 CarPlay 接收程式。
 
 ## TS7 專屬的修改
 
-DiPlay 用以下條件判斷車機是不是 TS7：`Build.HARDWARE`、`Build.BOARD` 或 `Build.DEVICE` 含有 `sp7731e`，或 `Build.MANUFACTURER` 是 `sprd`。
+DiPlay 用以下條件判斷車機是不是 TS7：`Build.HARDWARE`、`Build.BOARD` 或 `Build.DEVICE` 含有 `sp7731e`。TS7 的這三個欄位都是 `sp7731e_1h10`。DiPlay 不只看製造商 `sprd`，因為其他 Unisoc 車機也用這個製造商名稱。
 下表的預設值只在 TS7 上生效。如果使用者已經儲存過設定，DiPlay 使用使用者的設定。
 
 | 項目 | 修改內容 | 在哪裡關閉 |
