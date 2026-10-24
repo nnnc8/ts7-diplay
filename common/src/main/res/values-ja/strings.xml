@@ -788,7 +788,7 @@
     <string name="settings_mtk_decoder_tuning">MTKデコーダーの低遅延化（実験的機能）</string>
     <string name="settings_mtk_decoder_tuning_description">選択した映像形式の検出結果：%1$s。利用可能な場合はMTK専用の低遅延デコーダーを使用します。旧OMXデコーダーではフレーム並べ替えなし＋低遅延を試し、次に低遅延のみを試します。デコーダーが拒否または失敗した場合は自動で通常方式に戻ります。映像遅延を減らせる可能性がありますが、車載端末によっては映像が途切れたり表示できなかったりします。次回のCarPlay接続から反映されます。</string>
     <string name="settings_direct_video_output">映像の直接出力（実験的機能）</string>
-    <string name="settings_direct_video_output_description">DiPlay画面内に描画せず、車載端末のコンポジターへCarPlay映像を直接送ります。画面更新1回分ほどの遅延を減らせる場合があります。画質調整は適用されません。CarPlayを再接続します。</string>
+    <string name="settings_direct_video_output_description">DiPlay画面内に描画せず、車載端末のコンポジターへCarPlay映像を直接送ります。画面更新1回分ほどの遅延を減らせる場合があります。画質調整は適用されません。CarPlayを再接続します。TS7では初期設定でオンです。</string>
     <string name="settings_low_latency_decoder">低遅延デコード（実験的機能）</string>
     <string name="settings_low_latency_decoder_description">Qualcomm製の映像デコーダーに対し、フレームを保持せずデコード直後に出力するよう要求します。専用スレッドで次のフレームの到着を待たずに表示し、数十ミリ秒の遅延を減らせる場合があります。映像が乱れたり停止したりする場合はオフにしてください。次回の接続から反映されます。</string>
     <string name="settings_low_delay_h264_sps">H.264の並べ替えなし出力（実験的機能）</string>

@@ -746,7 +746,7 @@
     <string name="settings_mtk_decoder_tuning">MTK 解碼器低延遲（實驗性）</string>
     <string name="settings_mtk_decoder_tuning_description">偵測到所選影片格式可使用 %1$s。有專用 MTK 低延遲解碼器時優先使用；舊版 OMX 解碼器則先嘗試無重新排序加低延遲，再嘗試僅低延遲。解碼器拒絕設定或執行失敗時會自動回退。它可能降低畫面延遲，但部分韌體可能卡頓或解碼失敗。下次連線至 CarPlay 時生效。</string>
     <string name="settings_direct_video_output">直接影片輸出（實驗性）</string>
-    <string name="settings_direct_video_output_description">將 CarPlay 畫面直接交給車機的系統合成器，而不是在 DiPlay 視窗內繪製。可將延遲降低約一次螢幕更新。畫面調整不適用。會重新連線至 CarPlay。</string>
+    <string name="settings_direct_video_output_description">將 CarPlay 畫面直接交給車機的系統合成器，而不是在 DiPlay 視窗內繪製。可將延遲降低約一次螢幕更新。畫面調整不適用。會重新連線至 CarPlay。TS7 預設開啟。</string>
     <string name="settings_low_latency_decoder">低延遲解碼（實驗性）</string>
     <string name="settings_low_latency_decoder_description">要求高通影片解碼器在每一幀解碼後立即輸出，而不是保留後續幀，並由專用執行緒立即顯示每個已解碼的幀，無需等待下一幀到達。可將延遲降低數十毫秒。如果畫面出現破圖或凍結，請關閉。下次連線時生效。</string>
     <string name="settings_low_delay_h264_sps">H.264 不重新排序輸出（實驗性）</string>

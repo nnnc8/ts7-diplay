@@ -753,7 +753,10 @@ object AirPlayPersistence {
     }
 
     fun loadDirectVideoOutput(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_DIRECT_VIDEO_OUTPUT, false)
+        loadDirectVideoOutput(context, Ts7HeadUnit.detected)
+
+    internal fun loadDirectVideoOutput(context: Context, ts7: Boolean): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_DIRECT_VIDEO_OUTPUT, ts7)
 
     fun saveDirectVideoOutput(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_DIRECT_VIDEO_OUTPUT, enabled).apply()
