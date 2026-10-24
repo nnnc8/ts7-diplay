@@ -1,3 +1,17 @@
+# DiPlay TS7（鼎威 TS7 專用版）
+
+這個儲存庫是鼎威 TS7 車機專用的 DiPlay 版本。
+這個版本以 wudi81 v21（上游 DiPlay 0.2.21）為基礎，針對 TS7 重新修改。
+安裝包名是 `com.shihab.diplay.ts7`，App 名稱是「DiPlay TS7」。
+
+安裝步驟、TS7 專屬修改和實車測試清單見 [docs/TS7.zh-TW.md](docs/TS7.zh-TW.md)。
+安裝前要先移除舊的「DiPlay TS7」v0.2.48。
+
+以下是 wudi81 分支的原始說明。
+說明中的安裝包名 `com.shihab.diplay.wudi81v18` 不適用於 TS7 版本。
+
+---
+
 # DiPlay · wudi81 分支
 
 **给安卓车机用的无线／有线 CarPlay 接收端。** 本仓库是

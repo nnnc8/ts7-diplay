@@ -3120,6 +3120,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         CarHotspotTethering.Result.PERMISSION_REQUIRED -> R.string.hotspot_control_missing
         CarHotspotTethering.Result.UNSUPPORTED -> R.string.hotspot_control_unsupported
         CarHotspotTethering.Result.TIMED_OUT -> R.string.hotspot_control_timeout
+        CarHotspotTethering.Result.NO_CHANNEL -> R.string.hotspot_no_channel
         else -> R.string.hotspot_control_failed
     })
 
