@@ -20,3 +20,9 @@ LOCAL_C_INCLUDES := $(LOCAL_PATH)/speexdsp $(LOCAL_PATH)/speexdsp/include
 LOCAL_CFLAGS := -O2 -DFLOATING_POINT -DUSE_KISS_FFT -DEXPORT= -Wno-unused-parameter
 LOCAL_LDLIBS := -lm
 include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := native_chacha20poly1305
+LOCAL_SRC_FILES := chacha20poly1305.c chacha20poly1305_jni.c
+LOCAL_CFLAGS := -std=c99 -O3 -Wall -Wextra -Werror
+include $(BUILD_SHARED_LIBRARY)
