@@ -69,16 +69,19 @@ class StreamReceiveStatsTest {
     @Test fun decryptTimingIsReportedOnlyWhenRecordedAndThenReset() {
         var clock = 0L
         val output = mutableListOf<String>()
-        val stats = StreamReceiveStats("video", output::add) { clock }
+        val stats = StreamReceiveStats("video", output::add, decryptImplementation = { "native" }) { clock }
         stats.received(1_000)
         stats.decrypted(2_000_000, 500_000)
         stats.decrypted(500_000, 250_000)
         stats.processed()
         clock = 5_000_000_000L
         stats.flush()
-        assertTrue(output.last().endsWith(" decryptAvgUs=1250 decryptMaxUs=2000 decryptMBps=300"))
+        assertTrue(output.last().endsWith(
+            " decryptAvgUs=1250 decryptMaxUs=2000 decryptMBps=300 decryptImpl=native",
+        ))
         clock = 10_000_000_000L
         stats.flush()
-        assertTrue(!output.last().contains("decrypt"))
+        assertTrue(!output.last().contains("decryptAvgUs"))
+        assertTrue(output.last().endsWith("decryptImpl=native"))
     }
 }

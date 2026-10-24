@@ -98,6 +98,45 @@ class AirPlayCryptoChachaTest {
         } finally { state.set(saved) }
     }
 
+    @Test fun injectedBackendsPreserveNativeFallbackAndTagFailureOrder() {
+        var implementation = ""
+        var fallbackCalls = 0
+        val bouncy = byteArrayOf(1, 2, 3)
+        val native = byteArrayOf(4, 5, 6)
+
+        val unavailable = AirPlayCrypto.chachaWithFallback(
+            platform = { null },
+            native = { null },
+            bouncyCastle = { fallbackCalls++; bouncy },
+            onFallbackImplementation = { implementation = it },
+        )
+        assertArrayEquals(bouncy, unavailable)
+        assertEquals("BouncyCastle", implementation)
+        assertEquals(1, fallbackCalls)
+
+        val available = AirPlayCrypto.chachaWithFallback(
+            platform = { null },
+            native = { native },
+            bouncyCastle = { fail("native result should be used"); bouncy },
+            onFallbackImplementation = { implementation = it },
+        )
+        assertArrayEquals(native, available)
+        assertEquals("native", implementation)
+        assertEquals(1, fallbackCalls)
+
+        var fallbackAfterTagFailure = false
+        try {
+            AirPlayCrypto.chachaWithFallback(
+                platform = { null },
+                native = { throw AEADBadTagException("bad tag") },
+                bouncyCastle = { fallbackAfterTagFailure = true; bouncy },
+                onFallbackImplementation = { implementation = it },
+            )
+            fail("native tag failure should be surfaced")
+        } catch (_: AEADBadTagException) { }
+        assertTrue(!fallbackAfterTagFailure)
+    }
+
     @Test fun largeFramesDoNotRetainLargeDirectBuffers() {
         val key = bytes(32)
         val nonce = AirPlayCrypto.nonce64(3)

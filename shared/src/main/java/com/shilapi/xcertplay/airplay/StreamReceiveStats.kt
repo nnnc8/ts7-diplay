@@ -4,6 +4,7 @@ package com.shilapi.xcertplay.airplay
 internal class StreamReceiveStats(
     private val label: String,
     private val report: (String) -> Unit,
+    private val decryptImplementation: () -> String = { AirPlayCrypto.chachaImplementation },
     private val nowNs: () -> Long = System::nanoTime,
 ) {
     private var windowStart = nowNs()
@@ -90,7 +91,8 @@ internal class StreamReceiveStats(
             "seqGapLast=[$lastSequenceGap] seqGapAtMs=$lastSequenceGapAtMs ended=$ended " +
             "windowMs=${(now - windowStart).coerceAtLeast(0) / 1_000_000} " +
             "readsOver250Ms=$readsOver250Ms seqGapAfterReadOver250Ms=$seqGapAfterReadOver250Ms " +
-            "seqMissingAfterReadOver250Ms=$seqMissingAfterReadOver250Ms" + decryptSummary()) }
+            "seqMissingAfterReadOver250Ms=$seqMissingAfterReadOver250Ms" + decryptSummary() +
+            " decryptImpl=${decryptImplementation()}") }
         windowStart = now
         decryptSamples = 0
         decryptBytes = 0

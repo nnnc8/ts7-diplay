@@ -51,9 +51,13 @@ object AirPlayCrypto {
                 ?.let(::PlatformChacha)
     }
 
+    private val lastChachaImplementation = object : ThreadLocal<String>() {
+        override fun initialValue(): String = "BouncyCastle"
+    }
+
     /** Implementation used by this thread's last successful operation, for diagnostics. */
     val chachaImplementation: String
-        get() = platformState.get()?.implementation ?: "BouncyCastle"
+        get() = lastChachaImplementation.get() ?: "BouncyCastle"
 
     data class X25519KeyPair(val privateKey: ByteArray, val publicKey: ByteArray)
     data class Ed25519KeyPair(val privateKey: ByteArray, val publicKey: ByteArray)
@@ -112,20 +116,41 @@ object AirPlayCrypto {
         nonce: ByteArray,
         plaintext: ByteArray,
         aad: ByteArray = ByteArray(0),
-    ): ByteArray = platformChacha(Cipher.ENCRYPT_MODE, key, nonce, plaintext, aad)
-        ?: chachaSealBouncyCastle(key, nonce, plaintext, aad).also {
-            platformState.get()?.implementation = "BouncyCastle"
-        }
+    ): ByteArray = chachaWithFallback(
+        platform = { platformChacha(Cipher.ENCRYPT_MODE, key, nonce, plaintext, aad) },
+        native = { NativeChaCha20Poly1305.availableBackend()?.seal(key, nonce, plaintext, aad) },
+        bouncyCastle = { chachaSealBouncyCastle(key, nonce, plaintext, aad) },
+        onFallbackImplementation = ::recordChachaImplementation,
+    )
 
     fun chachaOpen(
         key: ByteArray,
         nonce: ByteArray,
         ciphertextAndTag: ByteArray,
         aad: ByteArray = ByteArray(0),
-    ): ByteArray = platformChacha(Cipher.DECRYPT_MODE, key, nonce, ciphertextAndTag, aad)
-        ?: chachaOpenBouncyCastle(key, nonce, ciphertextAndTag, aad).also {
-            platformState.get()?.implementation = "BouncyCastle"
-        }
+    ): ByteArray = chachaWithFallback(
+        platform = { platformChacha(Cipher.DECRYPT_MODE, key, nonce, ciphertextAndTag, aad) },
+        native = { NativeChaCha20Poly1305.availableBackend()?.open(key, nonce, ciphertextAndTag, aad) },
+        bouncyCastle = { chachaOpenBouncyCastle(key, nonce, ciphertextAndTag, aad) },
+        onFallbackImplementation = ::recordChachaImplementation,
+    )
+
+    /** Shared dispatcher keeps backend order testable without loading a native library in JVM tests. */
+    internal fun chachaWithFallback(
+        platform: () -> ByteArray?,
+        native: () -> ByteArray?,
+        bouncyCastle: () -> ByteArray,
+        onFallbackImplementation: (String) -> Unit,
+    ): ByteArray {
+        platform()?.let { return it }
+        native()?.let { return it.also { onFallbackImplementation("native") } }
+        return bouncyCastle().also { onFallbackImplementation("BouncyCastle") }
+    }
+
+    private fun recordChachaImplementation(implementation: String) {
+        lastChachaImplementation.set(implementation)
+        platformState.get()?.implementation = implementation
+    }
 
     /**
      * Null when the platform has no ChaCha20-Poly1305 or refuses this use of it (a desktop JDK rejects
@@ -144,7 +169,9 @@ object AirPlayCrypto {
             val cipher = state.cipher
             cipher.init(mode, SecretKeySpec(key, "ChaCha20"), IvParameterSpec(nonce))
             if (aad.isNotEmpty()) cipher.updateAAD(aad)
-            if (!useDirectBuffers) return cipher.doFinal(input).also { state.implementation = cipher.provider.name }
+            if (!useDirectBuffers) {
+                return cipher.doFinal(input).also { recordChachaImplementation(cipher.provider.name) }
+            }
             val source = sized(state.input, input.size).also {
                 if (it.capacity() <= MAX_RETAINED_BUFFER) state.input = it
             }
@@ -154,7 +181,7 @@ object AirPlayCrypto {
             }
             val written = cipher.doFinal(source, target)
             target.flip()
-            ByteArray(written).also { target.get(it); state.implementation = cipher.provider.name }
+            ByteArray(written).also { target.get(it); recordChachaImplementation(cipher.provider.name) }
         } catch (failure: AEADBadTagException) {
             throw failure
         } catch (_: GeneralSecurityException) {
