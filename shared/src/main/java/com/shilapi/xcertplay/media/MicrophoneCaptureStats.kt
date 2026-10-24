@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import com.shilapi.xcertplay.diagnostics.DiagnosticAddressRedactor
 
 internal enum class MicrophoneFailureStage {
     MIN_BUFFER, ENCODER, RECORDER_CREATION, RECORDER_INITIALIZATION, SOCKET_CREATION,
@@ -18,6 +19,8 @@ internal class MicrophoneCaptureStats(
     private var metadata = metadata(config)
     private var windowStart = nowNs()
     private var readStart = windowStart
+    private var recordingStartedNs: Long? = null
+    private var firstReadMs: Long? = null
     private var capturedBytes = 0L
     private var reads = 0L
     private var zeroReads = 0L
@@ -29,10 +32,13 @@ internal class MicrophoneCaptureStats(
     private var sendErrors = 0L
     private var lastSentNs: Long? = null
     private var sendGapMaxNs = 0L
+    private var firstSendError: SendError? = null
     private var peakSample = 0
     private var routedDeviceType: Int? = null
 
     fun started(routeType: Int?) {
+        recordingStartedNs = nowNs()
+        firstReadMs = null
         routedDeviceType = routeType
         emit("Microphone: start $metadata routedDeviceType=${routeType ?: "unknown"}")
     }
@@ -43,10 +49,16 @@ internal class MicrophoneCaptureStats(
     fun reading() { readStart = nowNs() }
 
     fun read(count: Int) {
+        val now = nowNs()
         reads++
-        readMaxNs = maxOf(readMaxNs, (nowNs() - readStart).coerceAtLeast(0))
+        readMaxNs = maxOf(readMaxNs, (now - readStart).coerceAtLeast(0))
         when {
-            count > 0 -> capturedBytes += count
+            count > 0 -> {
+                capturedBytes += count
+                if (firstReadMs == null) {
+                    firstReadMs = recordingStartedNs?.let { ((now - it).coerceAtLeast(0)) / 1_000_000 }
+                }
+            }
             count == 0 -> zeroReads++
             else -> readErrors++
         }
@@ -77,7 +89,10 @@ internal class MicrophoneCaptureStats(
         udpSent++
     }
 
-    fun sendFailed() { sendErrors++ }
+    fun sendFailed(error: Throwable, afterStop: Boolean) {
+        sendErrors++
+        if (firstSendError == null) firstSendError = SendError.from(error, afterStop)
+    }
 
     fun restarted(attempt: Int, reason: String, routeType: Int?) {
         emit("Microphone: recording restarted $metadata attempt=$attempt reason=$reason " +
@@ -92,10 +107,15 @@ internal class MicrophoneCaptureStats(
         val now = nowNs()
         if (!ended && now - windowStart < REPORT_INTERVAL_NS) return
         if (routeType != null) routedDeviceType = runCatching { routeType() }.getOrNull()
+        val sendError = if (sendErrors > 0) {
+            firstSendError?.let { " lastSendError=${it.name}:${it.message} afterStop=${it.afterStop}" }.orEmpty()
+        } else {
+            ""
+        }
         emit("Microphone: stats $metadata routedDeviceType=${routedDeviceType ?: "unknown"} " +
             "captureBytes=$capturedBytes reads=$reads zeroReads=$zeroReads readErrors=$readErrors " +
-            "readMaxMs=${readMaxNs / 1_000_000} encodedFrames=$encodedFrames " +
-            "emptyEncodedFrames=$emptyEncodedFrames udpSent=$udpSent sendErrors=$sendErrors " +
+            "readMaxMs=${readMaxNs / 1_000_000} firstReadMs=${firstReadMs ?: "none"} encodedFrames=$encodedFrames " +
+            "emptyEncodedFrames=$emptyEncodedFrames udpSent=$udpSent sendErrors=$sendErrors$sendError " +
             "sendGapMaxMs=${sendGapMaxNs / 1_000_000} peakDbfs=${peakDbfs(peakSample)} ended=$ended")
         windowStart = now
         capturedBytes = 0
@@ -107,6 +127,7 @@ internal class MicrophoneCaptureStats(
         emptyEncodedFrames = 0
         udpSent = 0
         sendErrors = 0
+        firstSendError = null
         sendGapMaxNs = 0
         peakSample = 0
     }
@@ -145,6 +166,23 @@ internal class MicrophoneCaptureStats(
 
         fun reportStartFailure(config: MicrophoneConfig, error: Throwable, report: (String) -> Unit) {
             runCatching { report(failureMessage(metadata(config), MicrophoneFailureStage.START, error, null)) }
+        }
+    }
+
+    private data class SendError(val name: String, val message: String, val afterStop: Boolean) {
+        companion object {
+            fun from(error: Throwable, afterStop: Boolean): SendError {
+                val name = error.javaClass.simpleName
+                    .replace(Regex("[^A-Za-z0-9_]"), "")
+                    .take(64)
+                    .ifEmpty { "unknown" }
+                val message = DiagnosticAddressRedactor.redactAddresses(error.message.orEmpty())
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .take(80)
+                    .ifEmpty { "no-message" }
+                return SendError(name, message, afterStop)
+            }
         }
     }
 }

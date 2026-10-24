@@ -424,7 +424,7 @@ internal class MicrophoneUplink(
             socket.send(DatagramPacket(packet, packet.size, config.host, config.port))
             stats.sent()
         } catch (error: Exception) {
-            stats.sendFailed()
+            stats.sendFailed(error, afterStop = !running.get())
             if (running.get()) throw error
         }
     }

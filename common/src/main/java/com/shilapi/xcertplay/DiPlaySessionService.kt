@@ -18,7 +18,7 @@ class DiPlaySessionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            CarPlayBackgroundSession.stop()
+            CarPlayBackgroundSession.stop("notification disconnect button pressed", SessionEndBy.USER)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -57,7 +57,7 @@ class DiPlaySessionService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         // BYD's recents force-stops the package ~10 ms after removing the task: end guidance first.
         com.shilapi.xcertplay.hud.BydNavigationOutputs.endNow()
-        CarPlayBackgroundSession.stop()
+        CarPlayBackgroundSession.stop("DiPlay task removed", SessionEndBy.SYSTEM)
         stopSelf()
     }
     companion object {

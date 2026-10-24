@@ -659,7 +659,12 @@ class CarPlayController(
         }
     }
 
-    override fun close() {
+    override fun close() = closeWithReason(null)
+
+    /** The Closeable overload stays for existing callers; the host can attach its teardown cause. */
+    fun close(reason: String?) = closeWithReason(reason)
+
+    private fun closeWithReason(reason: String?) {
         synchronized(wirelessResourceLock) {
             if (closed) return
             closed = true
@@ -673,7 +678,7 @@ class CarPlayController(
         startupTimer.shutdownNow()
         (hotspot as? ManualHotspotManager)?.close()
         val teardownStarted = System.nanoTime()
-        connectionDiagnostic("teardown begin transport=${config.transport}")
+        connectionDiagnostic(teardownBeginDiagnostic(config.transport.toString(), reason))
         videoGate?.close()
         BydNavigationOutputs.endNow()
         com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(false)
@@ -3133,6 +3138,11 @@ class CarPlayController(
 
     companion object {
         const val CONNECTION_DIAGNOSTIC_PREFIX = "CONNECTION_DIAGNOSTIC"
+
+        internal fun teardownBeginDiagnostic(transport: String, reason: String?): String =
+            "teardown begin transport=$transport" +
+                (reason?.takeIf { it.isNotBlank() }?.let { " reason=$it" } ?: "")
+
         // Indices in the telephony HID report (AirPlayHid.telephonyDescriptor).
         private const val TELEPHONY_HOOK_SWITCH = 1
         private const val TELEPHONY_DROP = 3

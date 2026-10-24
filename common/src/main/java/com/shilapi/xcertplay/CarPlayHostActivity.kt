@@ -813,6 +813,12 @@ class CarPlayHostActivity : ComponentActivity() {
             AirPlayPersistence.saveWirelessEnabled(this, false)
         }
         if (runCatching { DiPlayBootstrap.ensure(this, AirPlayPersistence.loadMfiTarget(this)) }.isFailure) {
+            initializeSessionLog()
+            appendLog(SessionEndDiagnostics.requested(
+                reason = "bootstrap could not initialize",
+                by = SessionEndBy.FAILURE,
+                terminateProcess = false,
+            ))
             OwnScreenStart.start(this, Intent(this, DiPlayActivity::class.java), ::appendLog)
             finish(); return
         }
@@ -1104,7 +1110,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 wirelessEnabled = false
                 wirelessPermissionsReady = true
                 if (controller != null) {
-                    restartCarPlay("switching to USB")
+                    restartCarPlay("switching to USB", SessionEndBy.USER)
                 }
                 requestStartupPrerequisites()
             } else if (controller == null) {
@@ -1168,6 +1174,11 @@ class CarPlayHostActivity : ComponentActivity() {
         val languagePreference = AppLocale.preference(this)
         if (Build.VERSION.SDK_INT < 33 && languagePreference != languagePreferenceAtCreate) {
             languagePreferenceAtCreate = languagePreference
+            appendLog(SessionEndDiagnostics.requested(
+                reason = "language setting changed; recreating host",
+                by = SessionEndBy.SETTINGS,
+                terminateProcess = false,
+            ))
             recreate()
             return
         }
@@ -1776,6 +1787,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
         isActivityStarted = false
         logThemeState(ThemeModeDiagnostics.Source.STOP, resources.configuration)
+        appendLog(SessionEndDiagnostics.activityStopped(isFinishing))
         mainHandler.removeCallbacks(pollConfiguration)
         super.onStop()
         // Off screen there are no system bars to hide, so a launch waiting for focus can go now.
@@ -1912,7 +1924,7 @@ class CarPlayHostActivity : ComponentActivity() {
         currentSurfaceTexture = null
         fallbackVideoView = null
         fallbackVideoBounds = null
-        sessionLog?.append("Activity destroyed")
+        sessionLog?.append(SessionEndDiagnostics.activityDestroyed(isFinishing, isChangingConfigurations))
         sessionLog?.close()
         sessionLog = null
         super.onDestroy()
@@ -1995,7 +2007,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 startupRetryStopped = false
                 reconnectAttempts = 0
                 visibility = View.GONE
-                restartCarPlay(getString(R.string.connecting_to_your_iphone))
+                restartCarPlay(getString(R.string.connecting_to_your_iphone), SessionEndBy.USER)
             }
             startupRetryButton = this
         }
@@ -5410,7 +5422,13 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!backgroundSessionMatchesView(snapshot.sink.videoPacingEnabled, smoothVideo)) {
             appendLog("Background session smooth video=${snapshot.sink.videoPacingEnabled} differs from this view; " +
                 "stopping it instead of adopting it")
-            CarPlayBackgroundSession.stop { mainHandler.post { if (!isDestroyed) maybeStartCarPlay() } }
+            val reason = "video settings changed since the running session started"
+            appendLog(SessionEndDiagnostics.requested(reason, SessionEndBy.SETTINGS, terminateProcess = false))
+            CarPlayBackgroundSession.stop(
+                reason = reason,
+                by = SessionEndBy.SETTINGS,
+                requestAlreadyLogged = true,
+            ) { mainHandler.post { if (!isDestroyed) maybeStartCarPlay() } }
             return false
         }
         displayDiagnosticAttempt = DisplayDiagnosticSnapshot.currentAttempt(this)
@@ -5431,10 +5449,10 @@ class CarPlayHostActivity : ComponentActivity() {
             showSidePanelGripHint()
         }
         MapMirrors.reapply()
-        CarPlayBackgroundSession.store(snapshot.controller, snapshot.sink, snapshot.width, snapshot.height,
-            this, snapshot.display) { completion ->
+        CarPlayBackgroundSession.storeWithReason(snapshot.controller, snapshot.sink, snapshot.width, snapshot.height,
+            this, snapshot.display) { reason, by, requestAlreadyLogged, completion ->
             runOnUiThread {
-                shutdown(false, "DiPlay disconnect", completion)
+                shutdown(false, reason, completion, by = by, requestAlreadyLogged = requestAlreadyLogged)
                 finish()
             }
         }
@@ -5583,9 +5601,15 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         sessionDisplay = display
         videoView?.let { updateVideoLayout(it.width, it.height) }
-        CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, display) { completion ->
+        CarPlayBackgroundSession.storeWithReason(next, renderer, size.width, size.height, this, display) { reason, by, requestAlreadyLogged, completion ->
             runOnUiThread {
-                shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
+                shutdown(
+                    terminateProcess = false,
+                    reason = reason,
+                    completion = completion,
+                    by = by,
+                    requestAlreadyLogged = requestAlreadyLogged,
+                )
                 finish()
             }
         }
@@ -5594,7 +5618,12 @@ class CarPlayHostActivity : ComponentActivity() {
             next.start()
         } catch (error: RuntimeException) {
             appendLog("Connection could not start: ${error.javaClass.simpleName}")
-            shutdown(false, "foreground service could not start")
+            shutdown(
+                terminateProcess = false,
+                reason = "foreground service could not start",
+                completion = {},
+                by = SessionEndBy.FAILURE,
+            )
             setConnectionStage(R.string.could_not_start_carplay_return_to_diplay_and_check_app_per)
         }
     }
@@ -5729,6 +5758,7 @@ class CarPlayHostActivity : ComponentActivity() {
         } else {
             restartCarPlay(
                 "Display changed ${previous.width}x${previous.height} -> ${size.width}x${size.height}",
+                SessionEndBy.SYSTEM,
             )
         }
     }
@@ -5882,6 +5912,11 @@ class CarPlayHostActivity : ComponentActivity() {
             // No session runs here, but a restart keeps this host as the session owner; the new instance
             // must be able to start its own.
             if (CarPlayBackgroundSession.isOwner(this)) CarPlayBackgroundSession.clear()
+            appendLog(SessionEndDiagnostics.requested(
+                reason = "video output setting changed; recreating host",
+                by = SessionEndBy.SETTINGS,
+                terminateProcess = false,
+            ))
             recreate()
             return
         }
@@ -5971,17 +6006,20 @@ class CarPlayHostActivity : ComponentActivity() {
                     appendLog("Not reconnecting after $reason: the same attempt is running again")
                     return@postDelayed
                 }
-                restartCarPlay("Reconnecting after $reason")
+                restartCarPlay("Reconnecting after $reason", SessionEndBy.FAILURE)
             },
             delayMillis,
         )
     }
 
     /** Full-stack fallback when an AirPlay-only reconnect is unavailable. */
-    private fun restartCarPlay(reason: String) {
+    private fun restartCarPlay(reason: String) = restartCarPlay(reason, SessionEndBy.SYSTEM)
+
+    private fun restartCarPlay(reason: String, by: SessionEndBy) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
         val size = activeDisplaySize ?: return
+        appendLog(SessionEndDiagnostics.requested(reason, by, terminateProcess = false))
         startupRetryBudget.disconnected()
         startupRetryButton?.visibility = View.GONE
         appendLog(reason)
@@ -6006,7 +6044,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val diagnosticLog = sessionLog
         teardownExecutor.execute {
             val started = System.nanoTime()
-            oldController?.close()
+            oldController?.close(reason)
             val completed = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
             AsyncDiagnosticLog.append(
                 diagnosticLog,
@@ -6180,7 +6218,10 @@ class CarPlayHostActivity : ComponentActivity() {
         } else if (handshakeResetInProgress) {
             startAfterHandshakeReset = true
         } else if ((reconnect || recoveryPending) && controller != null) {
-            restartCarPlay(if (reconnect) "Settings saved; reconnecting" else "Connection lost while settings were open; reconnecting")
+            restartCarPlay(
+                if (reconnect) "Settings saved; reconnecting" else "Connection lost while settings were open; reconnecting",
+                if (reconnect) SessionEndBy.SETTINGS else SessionEndBy.FAILURE,
+            )
         } else {
             maybeStartCarPlay()
         }
@@ -6189,12 +6230,30 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun exitApplication() {
         if (shuttingDown.get()) return
         restoreSettingsBaseline()
+        val reason = "settings exit application"
+        appendLog(SessionEndDiagnostics.requested(reason, SessionEndBy.SETTINGS, terminateProcess = true))
         finishAndRemoveTask()
-        shutdown(terminateProcess = true, reason = "settings exit application")
+        shutdown(
+            terminateProcess = true,
+            reason = reason,
+            completion = {},
+            by = SessionEndBy.SETTINGS,
+            requestAlreadyLogged = true,
+        )
     }
 
-    private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
+    private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) =
+        shutdown(terminateProcess, reason, completion, SessionEndBy.SYSTEM, requestAlreadyLogged = false)
+
+    private fun shutdown(
+        terminateProcess: Boolean,
+        reason: String,
+        completion: () -> Unit,
+        by: SessionEndBy,
+        requestAlreadyLogged: Boolean = false,
+    ) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
+        if (!requestAlreadyLogged) appendLog(SessionEndDiagnostics.requested(reason, by, terminateProcess))
         callPopupSessionReady = false
         updateCallPopupGuard()
         resetSidePanel()
@@ -6213,7 +6272,7 @@ class CarPlayHostActivity : ComponentActivity() {
         discardLastPicture()
         Log.i(TAG, "shutdown reason=$reason terminateProcess=$terminateProcess")
         teardownExecutor.execute {
-            oldController?.close()
+            oldController?.close(reason)
             val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
             oldSink?.let(::closeRetiringSink)
             airPlayCommandExecutor.shutdown()
@@ -6812,27 +6871,37 @@ internal object CarPlayBackgroundSession {
     @Volatile var active = false
     @Volatile var callPopupReady = false
     private var stopAction: (((() -> Unit)) -> Unit)? = null
+    private var stopActionWithReason: ((String, SessionEndBy, Boolean, () -> Unit) -> Unit)? = null
     private var stopping = false
     private var owner: Any? = null
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
-    @Synchronized fun hasSession(): Boolean = stopAction != null || stopping
+    @Synchronized fun hasSession(): Boolean = stopAction != null || stopActionWithReason != null || stopping
     private val stopWaiters = mutableListOf<() -> Unit>()
 
-    fun stop(completion: () -> Unit = {}) {
+    fun stop(
+        reason: String,
+        by: SessionEndBy,
+        requestAlreadyLogged: Boolean = false,
+        completion: () -> Unit = {},
+    ) {
         val action: (((() -> Unit)) -> Unit)?
+        val actionWithReason: ((String, SessionEndBy, Boolean, () -> Unit) -> Unit)?
         synchronized(this) {
             if (stopping) { stopWaiters.add(completion); return }
             action = stopAction
-            if (action != null) { stopping = true; stopWaiters.add(completion) }
+            actionWithReason = if (action == null) stopActionWithReason else null
+            if (action != null || actionWithReason != null) { stopping = true; stopWaiters.add(completion) }
         }
-        if (action == null) { completion(); return }
-        action.invoke {
+        if (action == null && actionWithReason == null) { completion(); return }
+        val onComplete = {
             val callbacks = synchronized(this) {
                 stopping = false
                 stopWaiters.toList().also { stopWaiters.clear() }
             }
             callbacks.forEach { it() }
         }
+        if (actionWithReason != null) actionWithReason.invoke(reason, by, requestAlreadyLogged, onComplete)
+        else action!!.invoke(onComplete)
     }
 
     data class Snapshot(
@@ -6857,11 +6926,30 @@ internal object CarPlayBackgroundSession {
         return Snapshot(currentController, currentSink, width, height, currentDisplay)
     }
 
-    @Synchronized
     fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int,
         owner: Any, display: CarPlaySessionDisplay, stop: (() -> Unit) -> Unit) {
+        storeSession(controller, sink, width, height, owner, display, stop, null)
+    }
+
+    fun storeWithReason(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int,
+        owner: Any, display: CarPlaySessionDisplay, stop: (String, SessionEndBy, Boolean, () -> Unit) -> Unit) {
+        storeSession(controller, sink, width, height, owner, display, null, stop)
+    }
+
+    @Synchronized
+    private fun storeSession(
+        controller: CarPlayController,
+        sink: AndroidMediaSink,
+        width: Int,
+        height: Int,
+        owner: Any,
+        display: CarPlaySessionDisplay,
+        stop: (((() -> Unit)) -> Unit)?,
+        stopWithReason: ((String, SessionEndBy, Boolean, () -> Unit) -> Unit)?,
+    ) {
         if (this.controller !== controller) callPopupReady = false
         this.stopAction = stop
+        this.stopActionWithReason = stopWithReason
         this.owner = owner
         this.controller = controller
         this.sink = sink
@@ -6875,7 +6963,7 @@ internal object CarPlayBackgroundSession {
         if (expected != null && controller !== expected) return
         controller = null
         sink = null
-        if (!keepOwner) { stopAction = null; owner = null }
+        if (!keepOwner) { stopAction = null; stopActionWithReason = null; owner = null }
         active = false
         callPopupReady = false
         width = 0
