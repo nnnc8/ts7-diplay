@@ -615,6 +615,7 @@
     <string name="hotspot_control_unsupported">目前韌體不支援自動開啟熱點，請在車機設定中開啟。</string>
     <string name="hotspot_control_timeout">等待車機熱點開啟超時，請在車機設定中開啟。</string>
     <string name="hotspot_control_failed">車機熱點開啟失敗，請在車機設定中開啟。</string>
+    <string name="hotspot_no_channel">已儲存的熱點頻段無法使用。請在車機設定中將熱點設為 2.4 GHz。</string>
     <string name="byd_adb_features">比亞迪功能 · 需要 ADB</string>
     <string name="location_reporting_reconnects">變更此設定會重新連線進行中的 CarPlay。</string>
     <string name="diagnostic_report_saved_in_app">由於公開儲存位置無法使用，報告已私密儲存到 DiPlay。您可以在此分享或檢視報告。不會自動傳送任何內容。</string>

@@ -21,6 +21,7 @@ object CarHotspotTethering {
         PERMISSION_REQUIRED("Hotspot control permission is missing"),
         UNSUPPORTED("This firmware does not support automatic hotspot startup"),
         FAILED("The car could not start its hotspot"),
+        NO_CHANNEL("The car hotspot cannot use its saved band; set it to 2.4 GHz in car settings"),
         TIMED_OUT("Timed out waiting for the car hotspot"),
         CANCELLED("Hotspot startup was cancelled"),
     }
@@ -35,6 +36,8 @@ object CarHotspotTethering {
         context: Context,
         isCancelled: () -> Boolean,
         timeoutMillis: Long = WirelessStartupPolicy.HOTSPOT_READY_MILLIS,
+        maxTimeoutMillis: Long = timeoutMillis,
+        extendWhileEnabling: Boolean = false,
         log: (String) -> Unit,
     ): Result {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
@@ -66,12 +69,16 @@ object CarHotspotTethering {
                 }
             }
         }
-        return enableUntil(
-            deadline,
+        return enableWithRawState(
+            timeoutMillis,
             isCancelled,
             { permitted(context) },
             stateWithAdbObservation({ CarHotspotStatus.isEnabled(context) }, observedAdbState),
+            rawApState = { CarHotspotStatus.apState(context) },
+            failureReason = { CarHotspotStatus.apFailureReason(context) },
             startFallback = startAdb,
+            maxTimeoutMillis = maxTimeoutMillis,
+            extendWhileEnabling = extendWhileEnabling,
             start = startReflection,
         ).also {
             if (it != Result.READY && it != Result.CANCELLED)
@@ -110,25 +117,75 @@ object CarHotspotTethering {
         isEnabled: () -> Boolean?,
         startFallback: (() -> Boolean)?,
         start: (ResultReceiver) -> Unit,
-    ): Result = enableUntil(System.nanoTime() + timeoutMillis * 1_000_000L,
-        isCancelled, canWrite, isEnabled, startFallback, start)
+    ): Result = enableUntil(
+        timeoutMillis = timeoutMillis,
+        isCancelled = isCancelled,
+        canWrite = canWrite,
+        isEnabled = isEnabled,
+        rawApState = null,
+        failureReason = null,
+        startFallback = startFallback,
+        maxTimeoutMillis = timeoutMillis,
+        extendWhileEnabling = false,
+        nowNanos = System::nanoTime,
+        pauseMillis = { Thread.sleep(it) },
+        start = start,
+    )
 
-    private fun enableUntil(
-        deadline: Long,
+    /** Injectable AP-state path for callers and deterministic state-machine tests. */
+    internal fun enableWithRawState(
+        timeoutMillis: Long,
         isCancelled: () -> Boolean,
         canWrite: () -> Boolean,
         isEnabled: () -> Boolean?,
+        rawApState: () -> Int?,
+        failureReason: () -> Int?,
+        startFallback: (() -> Boolean)? = null,
+        maxTimeoutMillis: Long = timeoutMillis,
+        extendWhileEnabling: Boolean = false,
+        nowNanos: () -> Long = System::nanoTime,
+        pauseMillis: (Long) -> Unit = { Thread.sleep(it) },
+        start: (ResultReceiver) -> Unit,
+    ): Result = enableUntil(
+        timeoutMillis = timeoutMillis,
+        isCancelled = isCancelled,
+        canWrite = canWrite,
+        isEnabled = isEnabled,
+        rawApState = rawApState,
+        failureReason = failureReason,
+        startFallback = startFallback,
+        maxTimeoutMillis = maxTimeoutMillis,
+        extendWhileEnabling = extendWhileEnabling,
+        nowNanos = nowNanos,
+        pauseMillis = pauseMillis,
+        start = start,
+    )
+
+    private fun enableUntil(
+        timeoutMillis: Long,
+        isCancelled: () -> Boolean,
+        canWrite: () -> Boolean,
+        isEnabled: () -> Boolean?,
+        rawApState: (() -> Int?)?,
+        failureReason: (() -> Int?)?,
         startFallback: (() -> Boolean)?,
+        maxTimeoutMillis: Long,
+        extendWhileEnabling: Boolean,
+        nowNanos: () -> Long,
+        pauseMillis: (Long) -> Unit,
         start: (ResultReceiver) -> Unit,
     ): Result {
+        val startedAt = nowNanos()
+        var deadline = startedAt + timeoutMillis.coerceAtLeast(1) * 1_000_000L
+        val maxDeadline = startedAt + maxOf(timeoutMillis, maxTimeoutMillis).coerceAtLeast(1) * 1_000_000L
         fun stopped(): Result? = when {
             isCancelled() || Thread.currentThread().isInterrupted -> Result.CANCELLED
-            System.nanoTime() >= deadline -> Result.TIMED_OUT
+            nowNanos() >= deadline -> Result.TIMED_OUT
             else -> null
         }
         while (true) {
             stopped()?.let { return it }
-            val remaining = (deadline - System.nanoTime()) / 1_000_000L
+            val remaining = (deadline - nowNanos()) / 1_000_000L
             if (remaining <= 0) return Result.TIMED_OUT
             try {
                 if (startupLock.tryLock(minOf(250L, remaining), TimeUnit.MILLISECONDS)) break
@@ -139,9 +196,41 @@ object CarHotspotTethering {
         }
         try {
             stopped()?.let { return it }
-            val initialState = isEnabled()
+            fun enabledState(): Boolean? = runCatching(isEnabled).getOrNull()
+            fun apState(): Int? = rawApState?.let { runCatching(it).getOrNull()?.takeIf { state -> state in 10..14 } }
+            fun failure(): Int? = failureReason?.let { runCatching(it).getOrNull() }
+            fun observed(state: Int?): Int? {
+                if (state == 12) deadline = WirelessStartupPolicy.extendTetheringDeadline(
+                    deadline, maxDeadline, extendWhileEnabling,
+                )
+                return state
+            }
+            fun pause(limit: Long = deadline): Boolean {
+                stopped()?.let { return false }
+                val remaining = (limit - nowNanos()) / 1_000_000L
+                if (remaining <= 0) return false
+                try {
+                    pauseMillis(minOf(250L, remaining).coerceAtLeast(1L))
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+                return stopped() == null
+            }
+            fun waitForFailureRetry(): Result? {
+                val retryAt = nowNanos() + FAILURE_RETRY_DELAY_MILLIS * 1_000_000L
+                while (nowNanos() < retryAt) {
+                    if (!pause(minOf(deadline, retryAt))) return stopped() ?: Result.TIMED_OUT
+                    val state = observed(apState())
+                    if (state == 13 || (state == null && enabledState() == true)) return Result.READY
+                    if (state == 14 && failure() == NO_CHANNEL_FAILURE_REASON) return Result.NO_CHANNEL
+                }
+                return null
+            }
+            var initialApState = observed(apState())
+            val initialState = enabledState()
             stopped()?.let { return it }
-            if (initialState == true) return Result.READY
+            if (initialApState == 13 || initialState == true) return Result.READY
             val permission = canWrite()
             stopped()?.let { return it }
             if (!permission) return Result.PERMISSION_REQUIRED
@@ -152,26 +241,64 @@ object CarHotspotTethering {
                     false
                 }
             }
-            val unknown = initialState == null
-            if (unknown) {
-                if (!fallback()) return stopped() ?: Result.UNSUPPORTED
+
+            // Do not issue a duplicate request while another component is already bringing the AP up.
+            if (initialApState == 12) {
+                while (initialApState == 12) {
+                    if (!pause()) return stopped() ?: Result.TIMED_OUT
+                    initialApState = observed(apState())
+                    if (initialApState == null) {
+                        when (enabledState()) {
+                            true -> return Result.READY
+                            false -> break
+                            null -> break
+                        }
+                    }
+                }
+                if (initialApState == 13) return Result.READY
+                if (initialApState == 14 && failure() == NO_CHANNEL_FAILURE_REASON) return Result.NO_CHANNEL
             }
-            val response = AtomicInteger(-1)
-            try {
-                stopped()?.let { return it }
-                if (!unknown) {
+
+            // An AP being disabled can still be turning off; give the platform a short chance to settle.
+            if (initialApState == 10) {
+                val disablingDeadline = minOf(deadline, nowNanos() + DISABLING_SETTLE_MILLIS * 1_000_000L)
+                while (initialApState == 10 && nowNanos() < disablingDeadline) {
+                    if (!pause(disablingDeadline)) break
+                    initialApState = observed(apState())
+                    if (initialApState == 12) {
+                        while (initialApState == 12) {
+                            if (!pause()) return stopped() ?: Result.TIMED_OUT
+                            initialApState = observed(apState())
+                        }
+                    }
+                    if (initialApState == 13) return Result.READY
+                    if (initialApState == null && enabledState() == true) return Result.READY
+                }
+            }
+
+            val unknown = initialApState == null && initialState == null
+            if (unknown && !fallback()) return stopped() ?: Result.UNSUPPORTED
+
+            var response = AtomicInteger(-1)
+            var requestedAt = nowNanos()
+            var failureMayBeStale = false
+            fun requestStart(stateBefore: Int?): Result? {
+                response = AtomicInteger(-1)
+                requestedAt = nowNanos()
+                failureMayBeStale = stateBefore == 14
+                try {
+                    stopped()?.let { return it }
                     start(object : ResultReceiver(null) {
                         override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                             response.set(resultCode)
                         }
                     })
-                }
-            } catch (error: Exception) {
-                val adbRecovered = ((error is ReflectiveOperationException && error !is InvocationTargetException) ||
-                    error is SecurityException ||
-                    (error is InvocationTargetException && error.targetException is SecurityException)) &&
-                    fallback()
-                if (!adbRecovered) {
+                    return null
+                } catch (error: Exception) {
+                    val adbRecovered = ((error is ReflectiveOperationException && error !is InvocationTargetException) ||
+                        error is SecurityException ||
+                        (error is InvocationTargetException && error.targetException is SecurityException)) && fallback()
+                    if (adbRecovered) return null
                     stopped()?.let { return it }
                     return when {
                         error is InvocationTargetException -> if (error.targetException is SecurityException) Result.PERMISSION_REQUIRED else Result.FAILED
@@ -181,23 +308,53 @@ object CarHotspotTethering {
                     }
                 }
             }
+            if (!unknown) requestStart(initialApState)?.let { return it }
+
+            var failureRetries = 0
+            var state11Since: Long? = null
+            var longWaitRetried = false
             while (true) {
                 stopped()?.let { return it }
-                val enabled = isEnabled()
+                val state = observed(apState())
+                val enabled = enabledState()
                 stopped()?.let { return it }
-                if (enabled == true) return Result.READY
+                if (state != null && state != 14) failureMayBeStale = false
+                if (state == 13 || (state == null && enabled == true)) return Result.READY
                 if (response.get() > 0) return Result.FAILED
-                val remainingMillis = (deadline - System.nanoTime()) / 1_000_000L
-                if (remainingMillis <= 0) return Result.TIMED_OUT
-                try {
-                    Thread.sleep(minOf(250L, remainingMillis))
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    return Result.CANCELLED
+                // A FAILED state (and its reason) left from an earlier attempt is not this request's answer:
+                // wait for the AP to leave it, or for the grace period, before judging this request.
+                val staleFailure = state == 14 && failureMayBeStale &&
+                    nowNanos() - requestedAt < STALE_FAILURE_GRACE_MILLIS * 1_000_000L
+                if (state == 14 && !staleFailure) {
+                    if (failure() == NO_CHANNEL_FAILURE_REASON) return Result.NO_CHANNEL
+                    if (failureRetries >= MAX_FAILURE_RETRIES) return Result.FAILED
+                    waitForFailureRetry()?.let { return it }
+                    failureRetries++
+                    requestStart(14)?.let { return it }
+                    state11Since = null
+                    continue
                 }
+                if (state == 11 && response.get() == 0) {
+                    val now = nowNanos()
+                    val since = state11Since ?: now.also { state11Since = it }
+                    if (!longWaitRetried && now - since >= ACCEPTED_START_STUCK_MILLIS * 1_000_000L) {
+                        longWaitRetried = true
+                        requestStart(state)?.let { return it }
+                    }
+                } else {
+                    state11Since = null
+                }
+                if (!pause()) return stopped() ?: Result.TIMED_OUT
             }
         } finally {
             startupLock.unlock()
         }
     }
+
+    private const val NO_CHANNEL_FAILURE_REASON = 1
+    private const val DISABLING_SETTLE_MILLIS = 2_000L
+    private const val ACCEPTED_START_STUCK_MILLIS = 3_000L
+    private const val FAILURE_RETRY_DELAY_MILLIS = 500L
+    private const val MAX_FAILURE_RETRIES = 2
+    private const val STALE_FAILURE_GRACE_MILLIS = 2_000L
 }

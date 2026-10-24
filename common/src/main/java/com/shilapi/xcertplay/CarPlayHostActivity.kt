@@ -6716,6 +6716,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.ControlEnded -> res.getString(R.string.carplay_control_window_ended)
         is CarPlayStatus.Failed -> when (startupFailure) {
             WirelessStartupFailure.HOTSPOT_NOT_READY -> res.getString(R.string.hotspot_network_not_ready)
+            WirelessStartupFailure.HOTSPOT_NO_CHANNEL -> res.getString(R.string.hotspot_no_channel)
             WirelessStartupFailure.FIRST_TCP_TIMEOUT -> res.getString(R.string.first_tcp_timeout)
             WirelessStartupFailure.WIFI_DIRECT_BESIDE_HOTSPOT -> res.getString(R.string.wifi_direct_refused_beside_hotspot)
             else -> res.getString(R.string.status_failed, message)

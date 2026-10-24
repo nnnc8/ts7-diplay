@@ -632,6 +632,7 @@
     <string name="hotspot_control_unsupported">当前固件不支持自动开启热点，请在车机设置中开启。</string>
     <string name="hotspot_control_timeout">等待车机热点开启超时，请在车机设置中开启。</string>
     <string name="hotspot_control_failed">车机热点开启失败，请在车机设置中开启。</string>
+    <string name="hotspot_no_channel">已保存的热点频段不可用。请在车机设置中将热点设为 2.4 GHz。</string>
     <string name="byd_adb_features">比亚迪功能 · 需要 ADB</string>
     <string name="location_reporting_reconnects">更改此设置会重新连接当前 CarPlay 会话。</string>
     <string name="diagnostic_report_saved_in_app">由于公共保存位置不可用，报告已私密保存到 DiPlay。您可以在此分享或查看报告。不会自动发送任何内容。</string>

@@ -10,9 +10,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class CarHotspotStatusTest {
-    private fun sticky(state: Int?, mode: Int? = null) = Intent("android.net.wifi.WIFI_AP_STATE_CHANGED").apply {
+    private fun sticky(state: Int?, mode: Int? = null, reason: Int? = null) = Intent("android.net.wifi.WIFI_AP_STATE_CHANGED").apply {
         state?.let { putExtra("wifi_state", it) }
         mode?.let { putExtra("wifi_ap_mode", it) }
+        reason?.let { putExtra("wifi_ap_error_code", it) }
     }
 
     @Test fun hiddenGettersStillUseAValidStickyTetheredState() {
@@ -40,5 +41,21 @@ class CarHotspotStatusTest {
         assertEquals(true, CarHotspotStatus.read({ null }, { null }, { sticky(13) }))
         assertNull(CarHotspotStatus.read({ null }, { null }, { sticky(null) }))
         assertNull(CarHotspotStatus.read({ null }, { null }, { throw SecurityException() }))
+    }
+
+    @Test fun rawStatePrefersReflectionThenUsesOnlyTetheredStickyState() {
+        assertEquals(12, CarHotspotStatus.readApState({ 12 }, { fail("Do not read the sticky state"); sticky(13) }))
+        assertEquals(14, CarHotspotStatus.readApState({ 99 }, { sticky(14, 1) }))
+        assertNull(CarHotspotStatus.readApState({ null }, { sticky(12, 2) }))
+        assertNull(CarHotspotStatus.readApState({ null }, { sticky(15, 1) }))
+        assertNull(CarHotspotStatus.readApState({ throw SecurityException() }, { null }))
+    }
+
+    @Test fun failureReasonIsReadOnlyFromFailedTetheredApBroadcasts() {
+        assertEquals(1, CarHotspotStatus.readApFailureReason { sticky(14, 1, 1) })
+        assertNull(CarHotspotStatus.readApFailureReason { sticky(13, 1, 1) })
+        assertNull(CarHotspotStatus.readApFailureReason { sticky(14, 2, 1) })
+        assertNull(CarHotspotStatus.readApFailureReason { sticky(14, 1) })
+        assertNull(CarHotspotStatus.readApFailureReason { throw SecurityException() })
     }
 }
