@@ -15,6 +15,12 @@ class SessionEndDiagnosticsTest {
         )
     }
 
+    @Test fun taskRemovalKeepsTheRootActivityClass() {
+        assertEquals("DiPlay task removed root=com.shilapi.xcertplay.DiPlayActivity",
+            SessionEndDiagnostics.taskRemoved("com.shilapi.xcertplay.DiPlayActivity"))
+        assertEquals("DiPlay task removed root=unknown", SessionEndDiagnostics.taskRemoved(null))
+    }
+
     @Test fun recordsActivityStopAndDestroyFlags() {
         assertEquals("Activity stopped finishing=false", SessionEndDiagnostics.activityStopped(false))
         assertEquals(

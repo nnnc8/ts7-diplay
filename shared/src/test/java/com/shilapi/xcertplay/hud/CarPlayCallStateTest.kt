@@ -23,6 +23,18 @@ class CarPlayCallStateTest {
             string(4, uuid)
         }
 
+    @Test fun diagnosticsKeepOnlyPhaseCountAndMode() {
+        assertEquals("CarPlay call phase=ENDED calls=0 audioMode=0", state.diagnostic(0))
+        state.accept(update("a", 2, name = "Private Caller", remote = "+886900000000"))
+        assertEquals("CarPlay call phase=RINGING calls=1 audioMode=2", state.diagnostic(2))
+        state.accept(update("a", 4))
+        assertEquals("CarPlay call phase=ACTIVE calls=1 audioMode=3", state.diagnostic(3))
+        state.accept(update("b", 2))
+        assertEquals("CarPlay call phase=RINGING calls=2 audioMode=3", state.diagnostic(3))
+        state.clear()
+        assertEquals("CarPlay call phase=ENDED calls=0 audioMode=0", state.diagnostic(0))
+    }
+
     @Test
     fun followsAnIncomingCallFromRingingToEnded() {
         assertTrue(state.accept(update("a", status = 2, name = "Mum")))

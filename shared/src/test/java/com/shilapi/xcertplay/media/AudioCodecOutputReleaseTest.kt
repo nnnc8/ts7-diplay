@@ -40,12 +40,22 @@ class AudioCodecOutputReleaseTest {
         assertEquals(listOf("copy", "release", "write"), OutputCodec.events)
     }
 
-    private fun drain(audioType: String, failCopy: Boolean = false, failWrite: Boolean = false) {
+    @Test fun aLostAacBurstWritesSilenceAfterReleasingTheDecoderAndBeforeCurrentPcm() {
+        drain("media", missingPackets = 18)
+        val all = OutputTrack.allWrites.toByteArray()
+        assertEquals(18 * 1024 * 4 + 4, all.size)
+        assertTrue(all.take(all.size - 4).all { it == 0.toByte() })
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4), all.takeLast(4).toByteArray())
+    }
+
+    private fun drain(audioType: String, failCopy: Boolean = false, failWrite: Boolean = false, missingPackets: Int = 0) {
         OutputCodec.events.clear()
         OutputCodec.available = true
         OutputCodec.failCopy = failCopy
         OutputTrack.failWrite = failWrite
         OutputTrack.written = null
+        OutputTrack.allWrites.reset()
+        OutputCodec.timestampUs = if (missingPackets > 0) (missingPackets + 1) * 1024L * 1_000_000 / 48_000 else 12345
         val codec = MediaCodec.createDecoderByType("audio/mp4a-latm")
         val track = AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().build())
             .setAudioFormat(android.media.AudioFormat.Builder().setSampleRate(48_000)
@@ -73,6 +83,12 @@ class AudioCodecOutputReleaseTest {
         }
         val renderer = constructor.newInstance(*arguments.toTypedArray())
         fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
+        if (missingPackets > 0) {
+            val gaps = Ts7MusicGapConcealer(48_000)
+            gaps.accept(0, 0)
+            gaps.accept(missingPackets + 1, (missingPackets + 1) * 1024)
+            set("gapConcealer", gaps)
+        }
         set("track", track)
         set("fadeApplied", true)
         set("playbackStarted", true)
@@ -92,7 +108,7 @@ class AudioCodecOutputReleaseTest {
         @Implementation override fun native_dequeueOutputBuffer(info: MediaCodec.BufferInfo, timeout: Long): Int {
             if (!available) return MediaCodec.INFO_TRY_AGAIN_LATER
             available = false
-            info.set(2, 4, 12345, 0)
+            info.set(2, 4, timestampUs, 0)
             return 0
         }
         @Implementation override fun getBuffer(input: Boolean, index: Int): ByteBuffer {
@@ -105,19 +121,22 @@ class AudioCodecOutputReleaseTest {
             val events = mutableListOf<String>()
             var available = true
             var failCopy = false
+            var timestampUs = 12345L
         }
     }
 
     @Implements(AudioTrack::class)
     class OutputTrack {
         @Implementation fun write(bytes: ByteArray, offset: Int, size: Int, mode: Int): Int {
-            assertEquals("release", OutputCodec.events.last())
+            assertTrue("decoder must be released before PCM or silence writes", OutputCodec.events.contains("release"))
             OutputCodec.events.add("write")
             check(!failWrite) { "injected write failure" }
             written = bytes.copyOfRange(offset, offset + size)
+            allWrites.write(bytes, offset, size)
             return size
         }
         companion object {
+            val allWrites = java.io.ByteArrayOutputStream()
             var written: ByteArray? = null
             var failWrite = false
         }

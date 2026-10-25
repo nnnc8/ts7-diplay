@@ -99,6 +99,7 @@ internal class MicrophoneUplink(
                 }
             else -> MediaRecorder.AudioSource.MIC
         }
+        stats.useSource(source)
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
             opusEncoderFactory(config.bitrate ?: 48_000)
         } else {
@@ -120,7 +121,7 @@ internal class MicrophoneUplink(
         // Some head units throw on VOICE_RECOGNITION at build(); VOICE_COMMUNICATION works there.
         val nextRecorder = createRecorder(source, channelMask, bufferSize)
             ?: if (source == MediaRecorder.AudioSource.VOICE_RECOGNITION) {
-                stats.useVoiceCommunicationSource()
+                stats.useSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
                 createRecorder(MediaRecorder.AudioSource.VOICE_COMMUNICATION, channelMask, bufferSize)
             } else {
                 null
@@ -157,7 +158,7 @@ internal class MicrophoneUplink(
                 }
             }
             nextRecorder.startRecording()
-            stats.started(routeType(nextRecorder))
+            stats.started(routeType(nextRecorder), nextRecorder.recordingState)
             thread = Thread({ capture(nextRecorder, nextSocket) }, "carplay-mic").apply {
                 isDaemon = true
                 start()
@@ -286,6 +287,8 @@ internal class MicrophoneUplink(
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
         val routeInfo = { routeType(recorder) }
+        val ownSession = recorder.audioSessionId
+        val silence = audioManager?.let { manager -> { silenceDetail(manager, ownSession) } }
         var canceller = echoCanceller
         val clock = canceller?.let { CaptureClock(config.sampleRate) }
         val reference = canceller?.let { ShortArray(it.frameSamples) }
@@ -317,7 +320,7 @@ internal class MicrophoneUplink(
                     return
                 }
                 if (count == 0) {
-                    stats.flush(routeType = routeInfo)
+                    stats.flush(routeType = routeInfo, silence = silence)
                     // A recorder that starts with no input device routed returns 0 bytes at once, for
                     // as long as it runs: a Leapmotor T03 (Android 7.1) did this for minutes of Siri and
                     // call capture (#566). Restart it, and pause between empty reads instead of spinning.
@@ -367,7 +370,7 @@ internal class MicrophoneUplink(
                         filled = 0
                     }
                 }
-                stats.flush(routeType = routeInfo)
+                stats.flush(routeType = routeInfo, silence = silence)
             }
         } catch (error: Exception) {
             if (running.get()) {
@@ -375,7 +378,7 @@ internal class MicrophoneUplink(
                 stats.failure(MicrophoneFailureStage.CAPTURE, error)
             }
         } finally {
-            stats.flush(ended = true, routeType = routeInfo)
+            stats.flush(ended = true, routeType = routeInfo, silence = silence)
             running.set(false)
             release()
         }
@@ -444,6 +447,18 @@ internal class MicrophoneUplink(
         " ${formatMicrophoneInputDevices(entries)}"
     }.getOrDefault("")
 
+    /**
+     * The audio mode and the sources of the other recordings running now. A head unit that stays in
+     * communication mode after a call, or another app holding the microphone, can each leave this one silent.
+     * Other apps' recordings carry no package name for a normal app, only their source.
+     */
+    private fun silenceDetail(manager: AudioManager, ownSession: Int): String {
+        val others = manager.activeRecordingConfigurations
+            .filter { it.clientAudioSessionId != ownSession }
+            .map { MicrophoneCaptureStats.sourceName(it.clientAudioSource) }
+        return "audioMode=${manager.mode} otherRecordings=" +
+            if (others.isEmpty()) "none" else others.take(MAX_LISTED_RECORDINGS).joinToString(",", "[", "]")
+    }
     /** Capture can continue with the same recorder if the optional native processor stops working. */
     @Synchronized
     private fun restorePlatformEchoCancellation() {
@@ -534,6 +549,7 @@ internal class MicrophoneUplink(
         const val READ_RESTART_PAUSE_MILLIS = 50L
         const val NO_AUDIO_RESTART_MILLIS = 1_000L
         const val MAX_NO_AUDIO_RESTARTS = 3
+        const val MAX_LISTED_RECORDINGS = 4
         const val EMPTY_READ_PAUSE_MILLIS = 5L
     }
 }

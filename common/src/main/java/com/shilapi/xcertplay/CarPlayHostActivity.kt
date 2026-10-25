@@ -1925,6 +1925,7 @@ class CarPlayHostActivity : ComponentActivity() {
         fallbackVideoView = null
         fallbackVideoBounds = null
         sessionLog?.append(SessionEndDiagnostics.activityDestroyed(isFinishing, isChangingConfigurations))
+        carProfileDiagnostics?.stop()
         sessionLog?.close()
         sessionLog = null
         super.onDestroy()
@@ -5267,6 +5268,8 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     activeAirPlaySession = session
+                    runCatching { processMarker.active() }.onFailure { appendFileLog("Session process marker unavailable=${it.javaClass.simpleName}") }
+                    carProfileDiagnostics?.sessionActive()
                     val pending = pendingIphoneCornerMask
                     if (pending?.first === session) {
                         installIphoneCornerMask(session, pending.second.first, pending.second.second)
@@ -5314,6 +5317,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
                     activeAirPlaySession = null
+                    carProfileDiagnostics?.probe("sessionEnd")
+                    runCatching { processMarker.ended() }
                     clearIphoneCornerMask()
                     CarPlayBackgroundSession.active = false
                     callPopupSessionReady = false
@@ -5360,7 +5365,11 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     DisplayDiagnosticSnapshot.record(this@CarPlayHostActivity, displayDiagnosticAttempt, message)
-                    if (menuOpen) return@runOnUiThread
+                    if (message.contains("command type=disableBluetooth")) carProfileDiagnostics?.probe("disableBluetooth")
+                    if (menuOpen) {
+                        appendFileLog(message)
+                        return@runOnUiThread
+                    }
                     if (message.startsWith(PROTOCOL_TRACE_PREFIX)) {
                         appendFileLog(message)
                     } else {
@@ -6255,6 +6264,7 @@ class CarPlayHostActivity : ComponentActivity() {
     ) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
         if (!requestAlreadyLogged) appendLog(SessionEndDiagnostics.requested(reason, by, terminateProcess))
+        carProfileDiagnostics?.probe("shutdown")
         callPopupSessionReady = false
         updateCallPopupGuard()
         resetSidePanel()
@@ -6276,6 +6286,7 @@ class CarPlayHostActivity : ComponentActivity() {
             oldController?.close(reason)
             val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
             oldSink?.let(::closeRetiringSink)
+            if (clean) runCatching { processMarker.ended() }
             airPlayCommandExecutor.shutdown()
             if (terminateProcess) {
                 applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java))
@@ -6658,6 +6669,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun formattedLogLine(message: String, nowMillis: Long): String =
         "${SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(nowMillis))}  $message"
 
+    private val processMarker by lazy { SessionProcessMarker(File(filesDir, "active-carplay-session"), Process.myPid()) }
+    private var carProfileDiagnostics: CarBluetoothProfileDiagnostics? = null
+
     private fun initializeSessionLog() {
         val logFile = File(File(filesDir, "logs"), "diplay.log")
         val activeLog = SessionLogFile(logFile)
@@ -6669,6 +6683,12 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         }
         sessionLog = activeLog
+        processMarker.previous()?.let { appendFileLog(it) }
+        if (com.shilapi.xcertplay.network.Ts7HeadUnit.detected) {
+            carProfileDiagnostics?.stop()
+            carProfileDiagnostics = CarBluetoothProfileDiagnostics(applicationContext,
+                { DiPlayPreferences.phoneAddress(this) }, { appendFileLog(it) }).also { it.start() }
+        }
     }
 
     private fun refreshLogView(nowMillis: Long) {

@@ -22,7 +22,7 @@ class AudioDiagnosticsTest {
 
     @Test fun audioOutputMetadataIncludesNativeRateBufferSizeAndDecoderName() {
         assertEquals(
-            "nativeRate=48000 framesPerBuffer=256 decoderName=c2.android.aac.decoder",
+            "nativeRate=48000 framesPerBuffer=256 decoder=c2.android.aac.decoder",
             audioOutputDiagnostics(
                 nativeRate = { 48_000 },
                 framesPerBuffer = { "256" },

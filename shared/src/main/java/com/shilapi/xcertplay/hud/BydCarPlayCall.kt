@@ -57,6 +57,9 @@ class CarPlayCallState(private val clock: () -> Long = System::currentTimeMillis
 
     fun current(): CarPlayCallCard? = last
 
+    fun diagnostic(audioMode: Int): String =
+        "CarPlay call phase=${last?.phase ?: "ENDED"} calls=${calls.size} audioMode=$audioMode"
+
     fun clear() {
         calls.clear()
         last = null
@@ -147,6 +150,8 @@ object BydCarPlayCall {
 
     /** The current call, followed even while the setting is off so the wheel's call keys can act on it. */
     fun current(): CarPlayCallCard? = synchronized(state) { state.current() }
+
+    fun diagnostic(audioMode: Int): String = synchronized(state) { state.diagnostic(audioMode) }
 
     fun onFrame(frame: Iap2Frame) {
         val card = synchronized(state) {

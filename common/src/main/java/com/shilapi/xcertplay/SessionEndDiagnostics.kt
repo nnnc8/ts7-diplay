@@ -12,6 +12,8 @@ internal object SessionEndDiagnostics {
     fun requested(reason: String, by: SessionEndBy, terminateProcess: Boolean): String =
         "Session end requested reason=$reason by=${by.label} terminateProcess=$terminateProcess"
 
+    fun taskRemoved(rootClass: String?): String = "DiPlay task removed root=${rootClass ?: "unknown"}"
+
     fun activityStopped(finishing: Boolean): String =
         "Activity stopped finishing=$finishing"
 

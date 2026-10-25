@@ -133,6 +133,29 @@ class DiagnosticRedactorTest {
         assertFalse(DiagnosticRedactor.redact(lines.last())!!.contains("192.168.49.1"))
     }
 
+    @Test fun audioAndTeardownDiagnosticsSurviveDiskAndExport() {
+        val folder = Files.createTempDirectory("diplay-audio-diagnostics").toFile()
+        val lines = listOf(
+            "Audio: ready audioType=media codec=AAC_LC nativeRate=48000 framesPerBuffer=256 decoder=c2.android.aac.decoder",
+            "Audio: decoder ready audioType=media codec=AAC_LC decoder=OMX.google.aac.decoder",
+            "airplay TEARDOWN types=102 activeBefore=102 bodyBytes=128",
+            "CarPlay call phase=ACTIVE calls=1 audioMode=3",
+            "Audio: buffer stats audioType=media burstPacketsMax=18 burstPeriodMs=384 missingPackets=18 lostBursts=1 lateOrDuplicate=0 silenceFrames=18432 targetMs=900 trimPpm=0",
+            "Audio: output state audioType=media mode=0 musicVolume=10/15 musicMuted=false",
+        )
+        try {
+            SessionLogFile(folder.resolve("diplay.log")).use { log ->
+                log.reset("started")
+                lines.forEach(log::append)
+                log.append("deviceName=private")
+                log.append("payload=private")
+            }
+            val saved = folder.resolve("diplay.log").readText()
+            lines.forEach { assertTrue(it, saved.contains(it)) }
+            assertFalse(saved.contains("private"))
+        } finally { folder.deleteRecursively() }
+    }
+
     @Test fun startupAndAirPlayMilestonesSurviveExportWithoutWeakeningPayloadFilters() {
         val lines = listOf(
             "wireless startup elapsedMs=10000 authenticated=true wifiConfigs=2 startRequests=1 tcpAccepted=0 sessionActive=false waitingFor=WiFi_discovery_or_AirPlay_TCP",

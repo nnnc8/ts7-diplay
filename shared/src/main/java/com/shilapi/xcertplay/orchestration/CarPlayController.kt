@@ -681,6 +681,7 @@ class CarPlayController(
         connectionDiagnostic(teardownBeginDiagnostic(config.transport.toString(), reason))
         videoGate?.close()
         BydNavigationOutputs.endNow()
+        logCallPhase()
         com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(false)
         BydNavigationOutputs.clearClusterStreamControl(::applyClusterUi)
         closeReceivers()
@@ -819,9 +820,21 @@ class CarPlayController(
         }
     }
 
+    private var lastCallDiagnostic: String? = null
+
+    private fun logCallPhase() {
+        val mode = runCatching { appContext.getSystemService(android.media.AudioManager::class.java)?.mode }.getOrNull() ?: -1
+        val line = com.shilapi.xcertplay.hud.BydCarPlayCall.diagnostic(mode)
+        if (line != lastCallDiagnostic) {
+            lastCallDiagnostic = line
+            debugLog(line)
+        }
+    }
+
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
     private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
         BydNavigationOutputs.onFrame(frame)
+        if (frame.messageId == com.shilapi.xcertplay.hud.CarPlayCallState.CALL_STATE_UPDATE) logCallPhase()
         com.shilapi.xcertplay.glance.CarPlayGlance.onFrame(frame)
         synchronized(playbackStatus) {
             val previousPlaying = playbackStatus.playing

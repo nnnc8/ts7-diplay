@@ -776,8 +776,8 @@ class AirPlaySession(
         val types = teardownStreamTypes(decodedBody)
 
         debugLog(
-            "airplay TEARDOWN types=${types ?: "all"} activeBefore=$activeStreams " +
-                "body=${request.body.size} bytes payload=$decodedBody",
+            "airplay TEARDOWN types=${types?.joinToString(",") ?: "all"} activeBefore=${activeStreams.joinToString(",")} " +
+                "bodyBytes=${request.body.size}",
         )
         trace("airplay TEARDOWN raw${request.body.size}Hex=${request.body.toHex()}")
 

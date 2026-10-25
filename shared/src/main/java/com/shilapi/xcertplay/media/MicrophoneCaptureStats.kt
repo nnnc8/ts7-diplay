@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaRecorder
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.diagnostics.DiagnosticAddressRedactor
 
@@ -36,15 +37,17 @@ internal class MicrophoneCaptureStats(
     private var peakSample = 0
     private var routedDeviceType: Int? = null
 
-    fun started(routeType: Int?) {
+    fun started(routeType: Int?, recordingState: Int? = null) {
         recordingStartedNs = nowNs()
         firstReadMs = null
         routedDeviceType = routeType
-        emit("Microphone: start $metadata routedDeviceType=${routeType ?: "unknown"}")
+        emit("Microphone: start $metadata routedDeviceType=${routeType ?: "unknown"} recordingState=${recordingState ?: "unknown"}")
     }
 
     /** Call before the capture thread starts; [metadata] is not volatile. */
-    fun useVoiceCommunicationSource() { metadata = "type=$type source=VOICE_COMMUNICATION $format" }
+    fun useVoiceCommunicationSource() = useSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+
+    fun useSource(source: Int) { metadata = "type=$type source=${sourceName(source)} $format" }
 
     fun reading() { readStart = nowNs() }
 
@@ -103,10 +106,11 @@ internal class MicrophoneCaptureStats(
         emit(failureMessage(metadata, stage, error, code))
     }
 
-    fun flush(ended: Boolean = false, routeType: (() -> Int?)? = null) {
+    fun flush(ended: Boolean = false, routeType: (() -> Int?)? = null, silence: (() -> String)? = null) {
         val now = nowNs()
         if (!ended && now - windowStart < REPORT_INTERVAL_NS) return
         if (routeType != null) routedDeviceType = runCatching { routeType() }.getOrNull()
+        val silenceDetail = if (peakSample <= 0 && silence != null) runCatching { " " + silence() }.getOrDefault("") else ""
         val sendError = if (sendErrors > 0) {
             firstSendError?.let { " lastSendError=${it.name}:${it.message} afterStop=${it.afterStop}" }.orEmpty()
         } else {
@@ -116,7 +120,7 @@ internal class MicrophoneCaptureStats(
             "captureBytes=$capturedBytes reads=$reads zeroReads=$zeroReads readErrors=$readErrors " +
             "readMaxMs=${readMaxNs / 1_000_000} firstReadMs=${firstReadMs ?: "none"} encodedFrames=$encodedFrames " +
             "emptyEncodedFrames=$emptyEncodedFrames udpSent=$udpSent sendErrors=$sendErrors$sendError " +
-            "sendGapMaxMs=${sendGapMaxNs / 1_000_000} peakDbfs=${peakDbfs(peakSample)} ended=$ended")
+            "sendGapMaxMs=${sendGapMaxNs / 1_000_000} peakDbfs=${peakDbfs(peakSample)}$silenceDetail ended=$ended")
         windowStart = now
         capturedBytes = 0
         reads = 0
@@ -141,6 +145,22 @@ internal class MicrophoneCaptureStats(
         internal fun peakDbfs(peak: Int): String =
             if (peak <= 0) "silent" else Math.round(20 * kotlin.math.log10(peak / 32768.0)).toString()
 
+        private val SOURCE_NAMES = mapOf(
+            MediaRecorder.AudioSource.DEFAULT to "DEFAULT",
+            MediaRecorder.AudioSource.MIC to "MIC",
+            MediaRecorder.AudioSource.VOICE_UPLINK to "VOICE_UPLINK",
+            MediaRecorder.AudioSource.VOICE_DOWNLINK to "VOICE_DOWNLINK",
+            MediaRecorder.AudioSource.VOICE_CALL to "VOICE_CALL",
+            MediaRecorder.AudioSource.CAMCORDER to "CAMCORDER",
+            MediaRecorder.AudioSource.VOICE_RECOGNITION to "VOICE_RECOGNITION",
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION to "VOICE_COMMUNICATION",
+            MediaRecorder.AudioSource.REMOTE_SUBMIX to "REMOTE_SUBMIX",
+            MediaRecorder.AudioSource.UNPROCESSED to "UNPROCESSED",
+            // Not public: the always-listening source of a car's own voice assistant.
+            1999 to "HOTWORD",
+        )
+
+        internal fun sourceName(source: Int): String = SOURCE_NAMES[source] ?: source.toString()
         private fun typeAndSource(audioType: String): Pair<String, String> = when (audioType) {
             "telephony" -> "telephony" to "VOICE_COMMUNICATION"
             "speechrecognition" -> "speechrecognition" to "VOICE_RECOGNITION"

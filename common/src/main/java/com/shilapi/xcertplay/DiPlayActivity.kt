@@ -5660,7 +5660,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             openProjection()
         }
         if (CarPlayBackgroundSession.hasSession()) {
-            CarPlayBackgroundSession.stop("connection transport changed", SessionEndBy.USER) {
+            CarPlayBackgroundSession.stop("connection settings applied", SessionEndBy.SETTINGS) {
                 runOnUiThread { open() }
             }
         }
