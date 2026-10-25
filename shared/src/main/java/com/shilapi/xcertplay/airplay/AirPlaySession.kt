@@ -361,9 +361,11 @@ class AirPlaySession(
     fun sendKnobSelect(down: Boolean) =
         sendHidReport(AirPlayHid.KNOB_HID_UID, AirPlayHid.knobReport(AirPlayKnobState(select = down)))
 
-    fun sendMedia(index: Int) {
-        sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(index))
+    /** Returns whether the key-down report was accepted by the active AirPlay event connection. */
+    fun sendMedia(index: Int): Boolean {
+        val pressed = sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(index))
         sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(0))
+        return pressed
     }
 
     fun sendTelephony(index: Int) {

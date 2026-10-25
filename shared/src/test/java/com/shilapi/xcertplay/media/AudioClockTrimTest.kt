@@ -15,12 +15,16 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 
 /** The music renderer trims its track's playback rate from the queued level (#610). */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, shadows = [AudioClockTrimTest.RateTrack::class])
 class AudioClockTrimTest {
-    private val reports = mutableListOf<String>()
+    private val reports = CopyOnWriteArrayList<String>()
+    private val statsReported = CountDownLatch(1)
     private val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
     private lateinit var renderer: Any
     private lateinit var track: AudioTrack
@@ -41,7 +45,10 @@ class AudioClockTrimTest {
         renderer = type.declaredConstructors.single { it.parameterCount == 14 }.apply { isAccessible = true }
             .newInstance(AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0, AudioFocusCoordinator(null, false, false),
-                0, 500, { message: String -> reports.add(message) }, 0L, false, null, false, null)
+                0, 500, { message: String ->
+                    reports.add(message)
+                    if (message.startsWith("audio stats")) statsReported.countDown()
+                }, 0L, false, null, false, null)
         set("track", track)
         set("mappedChannel", AudioChannel.MEDIA)
         set("playbackStarted", true)
@@ -69,6 +76,7 @@ class AudioClockTrimTest {
         assertEquals(listOf(47_280), RateTrack.rates)
         type.getDeclaredMethod("logStatsIfDue", Boolean::class.javaPrimitiveType).apply { isAccessible = true }
             .invoke(renderer, true)
+        assertTrue("audio stats report was not delivered asynchronously", statsReported.await(1, TimeUnit.SECONDS))
         assertTrue(reports.toString(), reports.any { it.startsWith("audio stats") && it.contains(" playbackRate=47280 ended=true") })
     }
 

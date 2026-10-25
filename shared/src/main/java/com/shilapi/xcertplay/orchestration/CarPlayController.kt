@@ -33,6 +33,7 @@ import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
+import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.VideoInCar
 import com.shilapi.xcertplay.airplay.VideoPlaybackDelivery
@@ -43,6 +44,7 @@ import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient
+import com.shilapi.xcertplay.media.Ts7MusicPlaybackSignals
 import com.shilapi.xcertplay.network.CarPlayBonjour
 import com.shilapi.xcertplay.network.diagnosticSummary
 import com.shilapi.xcertplay.network.CarPlayVpnService
@@ -652,7 +654,12 @@ class CarPlayController(
         if (closed) return false
         val session = activeSession ?: return false
         return try {
-            touchExecutor.execute { session.sendMedia(index) }
+            touchExecutor.execute {
+                val sent = session.sendMedia(index)
+                if (sent && (index == CarPlayMediaButton.NEXT || index == CarPlayMediaButton.PREVIOUS)) {
+                    Ts7MusicPlaybackSignals.songSkip(index)
+                }
+            }
             true
         } catch (_: Exception) {
             false
@@ -841,7 +848,10 @@ class CarPlayController(
             playbackStatus.acceptUpdate(frame)?.let { it to (it.playing != previousPlaying) }
         }?.let { (update, playingChanged) ->
             nowPlayingListener?.invoke(update)
-            if (playingChanged) playbackListener?.invoke(update.playing)
+            if (playingChanged) {
+                Ts7MusicPlaybackSignals.playbackChanged(update.playing)
+                playbackListener?.invoke(update.playing)
+            }
         }
     }
 

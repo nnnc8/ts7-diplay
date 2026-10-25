@@ -29,6 +29,21 @@ class AudioCodecOutputReleaseTest {
         }
     }
 
+    @Test fun nonTs7PlaybackRetainsTheLegacySingleBlockingWrite() {
+        drain("default", pcmBytes = 10_000, playbackStarted = true)
+        assertEquals(listOf(10_000), OutputTrack.writeSizes)
+    }
+
+    @Test fun nonTs7PrebufferRetainsTheLegacyTwoKilobyteChunks() {
+        drain("default", pcmBytes = 10_000, playbackStarted = false)
+        assertEquals(listOf(2048, 2048, 2048, 2048, 1808), OutputTrack.writeSizes)
+    }
+
+    @Test fun ts7PlaybackWritesAtMostFortyMillisecondsPerBlockingCall() {
+        drain("media", pcmBytes = 10_000, playbackStarted = true, ts7Music = true)
+        assertEquals(listOf(7680, 2320), OutputTrack.writeSizes)
+    }
+
     @Test fun copyFailureStillReleasesTheOutputWithoutWriting() {
         drain("media", failCopy = true)
         assertEquals(listOf("copy", "release"), OutputCodec.events)
@@ -48,12 +63,22 @@ class AudioCodecOutputReleaseTest {
         assertArrayEquals(byteArrayOf(1, 2, 3, 4), all.takeLast(4).toByteArray())
     }
 
-    private fun drain(audioType: String, failCopy: Boolean = false, failWrite: Boolean = false, missingPackets: Int = 0) {
+    private fun drain(
+        audioType: String,
+        failCopy: Boolean = false,
+        failWrite: Boolean = false,
+        missingPackets: Int = 0,
+        pcmBytes: Int = 4,
+        playbackStarted: Boolean = false,
+        ts7Music: Boolean? = null,
+    ) {
         OutputCodec.events.clear()
         OutputCodec.available = true
         OutputCodec.failCopy = failCopy
+        OutputCodec.outputPcm = ByteArray(pcmBytes) { (it + 1).toByte() }
         OutputTrack.failWrite = failWrite
         OutputTrack.written = null
+        OutputTrack.writeSizes.clear()
         OutputTrack.allWrites.reset()
         OutputCodec.timestampUs = if (missingPackets > 0) (missingPackets + 1) * 1024L * 1_000_000 / 48_000 else 12345
         val codec = MediaCodec.createDecoderByType("audio/mp4a-latm")
@@ -83,15 +108,20 @@ class AudioCodecOutputReleaseTest {
         }
         val renderer = constructor.newInstance(*arguments.toTypedArray())
         fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
+        set("playbackStarted", playbackStarted)
+        set("startThresholdBytes", 100_000)
+        if (ts7Music != null) {
+            set("ts7Music", ts7Music)
+            set("bytesPerSecond", 48_000 * 4)
+        }
         if (missingPackets > 0) {
-            val gaps = Ts7MusicGapConcealer(48_000)
-            gaps.accept(0, 0)
-            gaps.accept(missingPackets + 1, (missingPackets + 1) * 1024)
+            val gaps = Ts7MusicGapConcealer<Any>(48_000)
+            gaps.accept(0, 0, Any(), 0L)
+            gaps.accept(missingPackets + 1, (missingPackets + 1) * 1024, Any(), 40_000_000L)
             set("gapConcealer", gaps)
         }
         set("track", track)
         set("fadeApplied", true)
-        set("playbackStarted", true)
         try {
             type.getDeclaredMethod("drainCodec", MediaCodec::class.java).apply { isAccessible = true }.invoke(renderer, codec)
             assertFalse("expected injected failure", failCopy || failWrite)
@@ -108,13 +138,13 @@ class AudioCodecOutputReleaseTest {
         @Implementation override fun native_dequeueOutputBuffer(info: MediaCodec.BufferInfo, timeout: Long): Int {
             if (!available) return MediaCodec.INFO_TRY_AGAIN_LATER
             available = false
-            info.set(2, 4, timestampUs, 0)
+            info.set(2, outputPcm.size, timestampUs, 0)
             return 0
         }
         @Implementation override fun getBuffer(input: Boolean, index: Int): ByteBuffer {
             events.add("copy")
             check(!failCopy) { "injected copy failure" }
-            return ByteBuffer.wrap(byteArrayOf(9, 9, 1, 2, 3, 4, 9))
+            return ByteBuffer.wrap(byteArrayOf(9, 9) + outputPcm + byteArrayOf(9))
         }
         @Implementation override fun releaseOutputBuffer(index: Int, render: Boolean) { events.add("release") }
         companion object {
@@ -122,6 +152,7 @@ class AudioCodecOutputReleaseTest {
             var available = true
             var failCopy = false
             var timestampUs = 12345L
+            var outputPcm = byteArrayOf(1, 2, 3, 4)
         }
     }
 
@@ -132,6 +163,7 @@ class AudioCodecOutputReleaseTest {
             OutputCodec.events.add("write")
             check(!failWrite) { "injected write failure" }
             written = bytes.copyOfRange(offset, offset + size)
+            writeSizes += size
             allWrites.write(bytes, offset, size)
             return size
         }
@@ -139,6 +171,7 @@ class AudioCodecOutputReleaseTest {
             val allWrites = java.io.ByteArrayOutputStream()
             var written: ByteArray? = null
             var failWrite = false
+            val writeSizes = mutableListOf<Int>()
         }
     }
 }

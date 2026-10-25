@@ -18,6 +18,7 @@ import android.view.Surface
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioStreamId
+import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.airplay.MediaSink
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
@@ -521,7 +522,7 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(id: AudioStreamId) {
         synchronized(this) {
-            audioRenderers.remove(id)?.close()
+            audioRenderers.remove(id)?.finishStream()
             callEchoReferences.remove(id)
         }
         updateMediaAudio(id, false)
@@ -1873,8 +1874,8 @@ private class AudioRenderer(
     private val echoReference: EchoReference? = null,
     voiceFilter: Boolean = false,
     private val audioManager: AudioManager? = null,
-) : Closeable {
-    private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long)
+) : Closeable, Ts7MusicPlaybackTarget {
+    private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long, val generation: Long)
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
     private val voiceFilter = if (voiceFilter && format.sampleRate > 0) VoiceFilter(format.sampleRate, pcmChannels) else null
@@ -1919,7 +1920,22 @@ private class AudioRenderer(
     private val frameBytes = if (format.channels >= 2) 4 else 2
     private var ts7Music = Ts7MusicBuffer.enabled(com.shilapi.xcertplay.network.Ts7HeadUnit.detected, format.audioType)
     private var adaptiveBuffer: Ts7MusicBuffer? = null
-    private var gapConcealer: Ts7MusicGapConcealer? = null
+    private var gapConcealer: Ts7MusicGapConcealer<AudioPacket>? = null
+    private val pcmConcealer = if (ts7Music && format.codec == AudioCodecKind.AAC_LC &&
+        format.payloadType == AudioChannelMapper.STREAM_TYPE_MAIN_HIGH_AUDIO) {
+        Ts7MusicPcmConcealer(format.sampleRate, pcmChannels)
+    } else null
+    private val latencyPolicy = Ts7MusicLatencyPolicy()
+    private val mediaGeneration = AtomicLong(0L)
+    private val pendingClearGeneration = AtomicLong(NO_CLEAR_GENERATION)
+    private val pendingSkipIndex = AtomicInteger(0)
+    private val playbackState = AtomicInteger(PLAYBACK_STATE_UNKNOWN)
+    private val streamEnded = AtomicBoolean(false)
+    private val endingRequestedNs = AtomicLong(0L)
+    private val finalTailFlushed = AtomicBoolean(false)
+    private var writeAborted = false
+    private var droppedForLatency = 0L
+    private var totalQueuedMs = 0L
     private val burstStats = AudioBurstStats()
     private val clockDiscontinuity = java.util.concurrent.atomic.AtomicBoolean()
     private val silence = ByteArray(4096)
@@ -1961,11 +1977,13 @@ private class AudioRenderer(
     fun start() {
         if (started) return
         started = true
+        if (ts7Music) Ts7MusicPlaybackSignals.register(this)
         thread.start()
     }
 
     fun submit(rtp: ByteArray, sample: Int) {
         val now = System.nanoTime()
+        val generation = mediaGeneration.get()
         if (started) {
             packetsReceived.incrementAndGet()
             burstStats.received(now)
@@ -1975,7 +1993,7 @@ private class AudioRenderer(
             newestRtpSample = sample
             // Hold short Wi-Fi bursts intact. If compressed audio remains >1.5s behind for
             // another 1.5s, skip only stale undecoded packets to catch up to the live song.
-            val removed = mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) ?: 0
+            val removed = if (ts7Music) 0 else mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) ?: 0
             if (removed > 0) {
                 packetsDropped.addAndGet(removed)
                 packetsDroppedTotal.addAndGet(removed)
@@ -1986,7 +2004,7 @@ private class AudioRenderer(
                 }
             }
         }
-        if (!started || !queue.offer(AudioPacket(rtp, sample, now))) {
+        if (!started || !queue.offer(AudioPacket(rtp, sample, now, generation))) {
             if (started) {
                 packetsDropped.incrementAndGet()
                 packetsDroppedTotal.incrementAndGet()
@@ -2009,6 +2027,28 @@ private class AudioRenderer(
         thread.interrupt()
     }
 
+    /** A normally ended media stream may play a bounded, already decoded tail before release. */
+    fun finishStream() {
+        if (!ts7Music || !started || !running) {
+            close()
+            return
+        }
+        streamEnded.set(true)
+        endingRequestedNs.set(System.nanoTime())
+    }
+
+    override fun requestSongSkip(index: Int) {
+        if (!ts7Music || !running) return
+        val generation = mediaGeneration.incrementAndGet()
+        pendingSkipIndex.set(index)
+        pendingClearGeneration.set(generation)
+    }
+
+    override fun playbackChanged(playing: Boolean) {
+        playbackState.set(if (playing) PLAYBACK_STATE_PLAYING else PLAYBACK_STATE_PAUSED)
+        if (!playing) endingRequestedNs.set(System.nanoTime()) else endingRequestedNs.set(0L)
+    }
+
     private fun run() {
         runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
         try {
@@ -2028,13 +2068,18 @@ private class AudioRenderer(
                 // Report Settings changes from this worker, never from the UI thread, also between prompts.
                 applyNavigationAttenuation()
                 diagnosticStage = "packet"
-                queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
+                processPendingSongSkip()
+                val pollMillis = if (gapConcealer?.hasReorderedPackets == true) REORDER_POLL_MILLIS else AUDIO_POLL_MILLIS
+                queue.poll(pollMillis, TimeUnit.MILLISECONDS)?.let(::handle)
+                gapConcealer?.flushExpired(System.nanoTime())?.forEach(::handleOrdered)
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
                 diagnosticStage = "decoder-output"
                 codec?.let(::drainCodec)
                 diagnosticStage = "buffer-maintenance"
+                enforceLatencyLimit()
                 maintainPlaybackBuffer()
+                finishEndedStreamIfDrained()
                 diagnosticStage = "stats"
                 logStatsIfDue()
             }
@@ -2052,6 +2097,7 @@ private class AudioRenderer(
         } finally {
             runCatching { logStatsIfDue(force = true) }
             release()
+            if (ts7Music) Ts7MusicPlaybackSignals.unregister(this)
         }
     }
 
@@ -2175,15 +2221,25 @@ private class AudioRenderer(
         diagnosticStage = "track-attributes"
         trackAttributes = audioTrackAttributesForFocus(built, attributes)
         diagnosticStage = "track-capacity"
-        val capacityBytes = built.bufferSizeInFrames * frameBytes
-        startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
+        val physicalCapacityBytes = maxOf(
+            built.bufferSizeInFrames,
+            runCatching { built.bufferCapacityInFrames }.getOrDefault(built.bufferSizeInFrames),
+        ) * frameBytes
         if (ts7Music) {
-            adaptiveBuffer = Ts7MusicBuffer(format.sampleRate, frameBytes, capacityBytes, mediaBufferMillis)
-            startThresholdBytes = adaptiveBuffer!!.targetBytes
+            adaptiveBuffer = Ts7MusicBuffer(format.sampleRate, frameBytes, physicalCapacityBytes, mediaBufferMillis)
             if (format.codec == AudioCodecKind.AAC_LC && format.payloadType == AudioChannelMapper.STREAM_TYPE_MAIN_HIGH_AUDIO) {
                 gapConcealer = Ts7MusicGapConcealer(format.sampleRate)
             }
+            resizeTrackToQueueLimit()
+            startThresholdBytes = adaptiveBuffer!!.totalLimitBytes
+        } else {
+            startThresholdBytes = MediaAudioBuffer.startBytesFor(
+                plan.startBytes,
+                built.bufferSizeInFrames * frameBytes,
+                PREBUFFER_WRITE_CHUNK_BYTES,
+            )
         }
+        val capacityBytes = built.bufferSizeInFrames * frameBytes
         // Only music plays long enough for the clocks to drift apart; calls keep their echo reference exact.
         clockTrim = if (mappedChannel == AudioChannel.MEDIA) MediaClockTrim(format.sampleRate, (startThresholdBytes / frameBytes).toLong(),
             measuresTarget = true, ts7Music = ts7Music) else null
@@ -2392,10 +2448,25 @@ private class AudioRenderer(
         if (queue.isEmpty()) {
             droppedPacketsLogged = false
         }
+        if (packet.generation < mediaGeneration.get()) {
+            countDroppedPackets(1)
+            return
+        }
         val rtp = packet.rtp
         if (rtp.size < 12) return
         val sequence = ((rtp[2].toInt() and 0xff) shl 8) or (rtp[3].toInt() and 0xff)
-        if (gapConcealer?.accept(sequence, packet.sample) == false) return
+        val ready = gapConcealer?.accept(sequence, packet.sample, packet, packet.arrivedNs) ?: listOf(packet)
+        ready.forEach(::handleOrdered)
+    }
+
+    private fun handleOrdered(packet: AudioPacket) {
+        if (packet.generation < mediaGeneration.get()) {
+            countDroppedPackets(1)
+            return
+        }
+        processPendingSongSkip()
+        val rtp = packet.rtp
+        if (rtp.size < 12) return
         val timestampUs = sampleTimestampUs(packet.sample)
         when (format.codec) {
             AudioCodecKind.LPCM -> writePcm(byteSwapS16(rtp.copyOfRange(12, rtp.size)))
@@ -2534,7 +2605,20 @@ private class AudioRenderer(
                     }
                     if (copied) {
                         val missing = gapConcealer?.silenceBefore(info.presentationTimeUs) ?: 0
-                        if (missing > 0) {
+                        val concealer = pcmConcealer
+                        if (concealer != null) {
+                            if (missing > 0) clockTrim?.suspendLearning(System.nanoTime())
+                            val result = concealer.process(pcm.copyOf(size), missing)
+                            for (chunk in result.chunks) {
+                                val before = totalWrittenFrames
+                                writePcm(chunk.pcm)
+                                if (chunk.silence) silenceFrames += totalWrittenFrames - before
+                                if (writeAborted) {
+                                    writeAborted = false
+                                    return
+                                }
+                            }
+                        } else if (missing > 0) {
                             clockTrim?.suspendLearning(System.nanoTime())
                             var remaining = missing * frameBytes
                             while (running && remaining > 0) {
@@ -2544,8 +2628,14 @@ private class AudioRenderer(
                                 silenceFrames += totalWrittenFrames - before
                                 remaining -= count
                             }
+                            if (writeAborted) {
+                                writeAborted = false
+                                return
+                            }
+                            writePcm(pcm, 0, size)
+                        } else {
+                            writePcm(pcm, 0, size)
                         }
-                        writePcm(pcm, 0, size)
                     }
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
                 }
@@ -2555,6 +2645,10 @@ private class AudioRenderer(
     }
 
     private fun writePcm(data: ByteArray, offset: Int = 0, length: Int = data.size) {
+        if (processPendingSongSkip()) {
+            writeAborted = true
+            return
+        }
         val track = track ?: return
         diagnosticStage = "track-write"
         if (!firstPcmLogged && length > 0) {
@@ -2573,10 +2667,17 @@ private class AudioRenderer(
         }
         var written = 0
         while (written < length && running) {
-            val writeLength = if (playbackStarted) {
-                length - written
+            if (processPendingSongSkip()) {
+                writeAborted = true
+                return
+            }
+            val remaining = length - written
+            val writeLength = if (ts7Music) {
+                minOf(remaining, maxPcmWriteBytes())
+            } else if (playbackStarted) {
+                remaining
             } else {
-                minOf(length - written, PREBUFFER_WRITE_CHUNK_BYTES)
+                minOf(remaining, PREBUFFER_WRITE_CHUNK_BYTES)
             }
             val writeStarted = System.nanoTime()
             diagnosticStage = "track-write"
@@ -2620,6 +2721,11 @@ private class AudioRenderer(
                     null
                 }
                 reference.append(data, offset + written - count, count, pcmChannels, pending, System.nanoTime())
+            }
+            enforceLatencyLimit()
+            if (processPendingSongSkip()) {
+                writeAborted = true
+                return
             }
         }
     }
@@ -2697,11 +2803,130 @@ private class AudioRenderer(
         }
         return frameNs
     }
+
+    private fun maxPcmWriteBytes(): Int {
+        val aligned = (bytesPerSecond.toLong() * Ts7MusicBuffer.MAX_WRITE_MILLIS / 1000L).toInt()
+        return (aligned.coerceAtLeast(frameBytes) / frameBytes) * frameBytes
+    }
+
+    private fun resizeTrackToQueueLimit() {
+        val currentTrack = track ?: return
+        val buffer = adaptiveBuffer ?: return
+        val requestedFrames = (buffer.totalLimitBytes / frameBytes).coerceAtLeast(1)
+        runCatching { currentTrack.setBufferSizeInFrames(requestedFrames) }
+    }
+
+    private fun compressedQueueFrames(): Long {
+        val packetCount = queue.size + (gapConcealer?.reorderedPacketCount ?: 0)
+        if (packetCount <= 0) return 0
+        if (format.codec == AudioCodecKind.AAC_LC) {
+            return packetCount.toLong() * Ts7MusicGapConcealer.AAC_FRAMES * format.sampleRate /
+                format.rtpClockRate.coerceAtLeast(1)
+        }
+        val pendingRtpFrames = mediaLagGuard?.pendingFrames(queue, newestRtpSample, AudioPacket::sample) ?: 0L
+        return pendingRtpFrames * format.sampleRate / format.rtpClockRate.coerceAtLeast(1)
+    }
+
+    private fun currentQueuedMillis(currentTrack: AudioTrack? = track): Long {
+        val pcmFrames = currentTrack?.let { bufferProgress.queuedBytes(it.playbackHeadPosition) / frameBytes } ?: 0L
+        val totalFrames = pcmFrames + compressedQueueFrames()
+        return if (format.sampleRate > 0) (totalFrames * 1000L + format.sampleRate - 1) / format.sampleRate else 0L
+    }
+
+    private fun enforceLatencyLimit() {
+        if (!ts7Music) return
+        val buffer = adaptiveBuffer ?: return
+        val now = System.nanoTime()
+        val queuedMs = currentQueuedMillis()
+        totalQueuedMs = queuedMs
+        val shouldDrop = if (playbackStarted) {
+            latencyPolicy.shouldDropDuringPlayback(queuedMs, buffer.targetMillis, now)
+        } else {
+            latencyPolicy.shouldDropBeforePlayback(queuedMs, buffer.targetMillis)
+        }
+        if (!shouldDrop) return
+        val oldest = queue.poll() ?: return
+        val rtp = oldest.rtp
+        if (rtp.size >= 12) {
+            val sequence = ((rtp[2].toInt() and 0xff) shl 8) or (rtp[3].toInt() and 0xff)
+            gapConcealer?.skip(sequence, oldest.sample)
+        }
+        countDroppedPackets(1)
+        droppedForLatency++
+        if (playbackStarted) pcmConcealer?.markJoinNeeded()
+    }
+
+    private fun countDroppedPackets(count: Int) {
+        if (count <= 0) return
+        packetsDropped.addAndGet(count)
+        packetsDroppedTotal.addAndGet(count)
+    }
+
+    private fun processPendingSongSkip(): Boolean {
+        val generation = pendingClearGeneration.getAndSet(NO_CLEAR_GENERATION)
+        if (generation == NO_CLEAR_GENERATION || !ts7Music) return false
+        val skipIndex = pendingSkipIndex.getAndSet(0)
+        val currentTrack = track
+        val pcmFrames = currentTrack?.let { bufferProgress.queuedBytes(it.playbackHeadPosition) / frameBytes } ?: 0L
+        val packetsToDrop = queue.count { it.generation < generation }
+        queue.removeIf { it.generation < generation }
+        countDroppedPackets(packetsToDrop)
+        currentTrack?.let { output ->
+            runCatching { output.pause() }
+            runCatching { output.flush() }
+            runCatching { output.setPlaybackRate(format.sampleRate) }
+        }
+        runCatching { codec?.flush() }
+        gapConcealer?.resetTimeline()
+        pcmConcealer?.resetTimeline()
+        adaptiveBuffer?.reset()
+        resizeTrackToQueueLimit()
+        startThresholdBytes = adaptiveBuffer?.totalLimitBytes ?: startThresholdBytes
+        clockTrim = if (mappedChannel == AudioChannel.MEDIA) MediaClockTrim(
+            format.sampleRate,
+            (startThresholdBytes / frameBytes).toLong(),
+            measuresTarget = true,
+            ts7Music = true,
+        ) else null
+        playbackStarted = false
+        prebufferBytes = 0
+        rebufferCount = 0
+        fadeApplied = false
+        latencyPolicy.reset()
+        clockDiscontinuity.set(false)
+        finalTailFlushed.set(false)
+        currentTrack?.let {
+            bufferProgress.reset(it.playbackHeadPosition)
+            underrunsAtPlaybackStart = it.underrunCount
+            headAtPlaybackStart = it.playbackHeadPosition
+        } ?: bufferProgress.reset()
+        totalWrittenFrames = 0L
+        lastPcmWriteNs = System.nanoTime()
+        totalQueuedMs = 0L
+        val reason = if (skipIndex == CarPlayMediaButton.PREVIOUS) "previous" else "next"
+        report("Audio: TS7 music queue cleared reason=$reason pcmQueuedFrames=$pcmFrames " +
+            "queuedPackets=$packetsToDrop droppedPackets=$packetsToDrop")
+        return true
+    }
+
     private fun maintainPlaybackBuffer() {
         val track = track ?: return
         val now = System.nanoTime()
-        if (playbackStarted && adaptiveBuffer?.stable(now) == true) startThresholdBytes = adaptiveBuffer!!.targetBytes
-        if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
+        if (playbackStarted && adaptiveBuffer?.stable(now) == true) {
+            startThresholdBytes = adaptiveBuffer!!.totalLimitBytes
+            resizeTrackToQueueLimit()
+        }
+        val explicitlyStopped = streamEnded.get() || playbackState.get() == PLAYBACK_STATE_PAUSED
+        val lastPacketNs = lastArrivalNs.get()
+        val noPacketSinceNs = if (lastPacketNs > 0L) now - lastPacketNs else {
+            val requestedAt = endingRequestedNs.get()
+            if (requestedAt > 0L) now - requestedAt else 0L
+        }
+        if (ts7Music && explicitlyStopped && queue.isEmpty() && noPacketSinceNs >= EXPLICIT_TAIL_WAIT_NS &&
+            finalTailFlushed.compareAndSet(false, true)) {
+            pcmConcealer?.flushTail()?.let(::writePcm)
+        }
+        if (!explicitlyStopped && bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
                 track.underrunCount > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition,
                 startThresholdBytes / 2L)) {
             // The hardware buffer has starved below the recovery floor. Pause without flushing
@@ -2709,7 +2934,8 @@ private class AudioRenderer(
             track.pause()
             playbackStarted = false
             clockTrim?.suspendLearning(now)
-            adaptiveBuffer?.let { it.rebuffer(now); startThresholdBytes = it.targetBytes }
+            adaptiveBuffer?.let { it.rebuffer(now); startThresholdBytes = it.totalLimitBytes }
+            resizeTrackToQueueLimit()
             // Pausing retains queued PCM. Count it toward the restart threshold so a
             // blocking write cannot fill the paused track before we call play().
             prebufferBytes = bufferProgress.queuedBytes(track.playbackHeadPosition)
@@ -2722,11 +2948,22 @@ private class AudioRenderer(
                 report("Audio: rebuffer paused audioType=${format.audioType} rebufferCount=$rebufferCount retainedMs=$retainedMs")
             }
         }
-        // A short final burst may never reach the start threshold. Play it after a bounded wait.
-        if (!playbackStarted && (!ts7Music || rebufferCount == 0) && prebufferBytes > 0 && queue.isEmpty() &&
-            System.nanoTime() - lastPcmWriteNs >= BUFFER_TAIL_WAIT_NS) {
+        val queuedBytes = bufferProgress.queuedBytes(track.playbackHeadPosition)
+        val stoppedTailReady = ts7Music && explicitlyStopped && queue.isEmpty() &&
+            noPacketSinceNs >= EXPLICIT_TAIL_WAIT_NS && queuedBytes >= bytesPerSecond.toLong() * EXPLICIT_TAIL_MIN_MILLIS / 1000L
+        // An explicit pause or stream end may leave a useful tail below an increased rebuffer target.
+        val normalTailReady = !ts7Music && prebufferBytes > 0 && queue.isEmpty() &&
+            now - lastPcmWriteNs >= BUFFER_TAIL_WAIT_NS
+        if (!playbackStarted && (stoppedTailReady || normalTailReady)) {
             startPlayback(track)
         }
+    }
+
+    private fun finishEndedStreamIfDrained() {
+        if (!streamEnded.get() || !finalTailFlushed.get() || !queue.isEmpty()) return
+        val currentTrack = track ?: run { running = false; return }
+        val queuedBytes = bufferProgress.queuedBytes(currentTrack.playbackHeadPosition)
+        if (!playbackStarted || queuedBytes == 0L) running = false
     }
 
     // Persist counters even during packet starvation, and flush before disconnect releases the track.
@@ -2766,28 +3003,29 @@ private class AudioRenderer(
             "partialWrites=$partialWritesThisWindow " +
             "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount " +
             "playbackRate=${clockTrim?.rate ?: -1} ended=$force"
-        Log.i(STATS_TAG, line)
-        report(line)
+        totalQueuedMs = currentQueuedMillis(currentTrack)
         // Separate bounded lines survive the report's 700-character privacy cap.
         val trimPpm = clockTrim?.let { (it.rate - format.sampleRate) * 1_000_000L / format.sampleRate } ?: 0L
-        report("Audio: buffer stats audioType=${format.audioType} ${burstStats.snapshot()} " +
+        val bufferLine = "Audio: buffer stats audioType=${format.audioType} ${burstStats.snapshot()} " +
             "missingPackets=${gapConcealer?.missingPackets ?: 0} lostBursts=${gapConcealer?.lostBursts ?: 0} " +
             "lateOrDuplicate=${gapConcealer?.lateOrDuplicate ?: 0} silenceFrames=$silenceFrames " +
-            "targetMs=${if (bytesPerSecond > 0) startThresholdBytes * 1000L / bytesPerSecond else 0} trimPpm=$trimPpm")
-        audioManager?.let { manager -> runCatching {
-            report("Audio: output state audioType=${format.audioType} mode=${manager.mode} " +
-                "musicVolume=${manager.getStreamVolume(AudioManager.STREAM_MUSIC)}/${manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)} " +
-                "musicMuted=${manager.isStreamMute(AudioManager.STREAM_MUSIC)}")
-        } }
-        if (format.codec != AudioCodecKind.LPCM) {
+            "shortGapsConcealed=${pcmConcealer?.shortGapsConcealed ?: 0} " +
+            "longGapsConcealed=${pcmConcealer?.longGapsConcealed ?: 0} " +
+            "repeatFrames=${pcmConcealer?.repeatFrames ?: 0} droppedForLatency=$droppedForLatency " +
+            "totalQueuedMs=$totalQueuedMs targetMs=${adaptiveBuffer?.targetMillis ?: "${if (bytesPerSecond > 0) startThresholdBytes * 1000L / bytesPerSecond else 0}"} " +
+            "trimPpm=$trimPpm"
+        val decoderLine = if (format.codec != AudioCodecKind.LPCM) {
             // Keep this separate: the exported diagnostic recorder caps each line at 700 characters.
-            val decoderLine = "Audio: decoder stats audioType=${format.audioType} codec=${format.codec} " +
+            "Audio: decoder stats audioType=${format.audioType} codec=${format.codec} " +
                 "inputQueuedTotal=$inputQueued inputDroppedTotal=$inputDropped " +
                 "shortOpusPacketsTotal=$shortOpusPackets decoderUnavailablePacketsTotal=$decoderUnavailablePackets " +
                 "outputBuffersTotal=$outputBuffers ended=$force"
-            Log.i(STATS_TAG, decoderLine)
-            runCatching { report(decoderLine) }
-        }
+        } else null
+        AudioDiagnosticRecorder.enqueue(
+            AudioDiagnosticSnapshot(line, bufferLine, decoderLine, format.audioType),
+            audioManager,
+            report,
+        )
         statsLastUnderruns = underruns
         maxWriteMs = 0L
         writtenFramesThisWindow = 0L
@@ -2876,7 +3114,14 @@ private class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_INPUT_WAIT_NS = 100_000_000L
         const val AUDIO_POLL_MILLIS = 10L
+        const val REORDER_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
+        const val EXPLICIT_TAIL_WAIT_NS = 300_000_000L
+        const val EXPLICIT_TAIL_MIN_MILLIS = 100L
+        const val NO_CLEAR_GENERATION = -1L
+        const val PLAYBACK_STATE_UNKNOWN = -1
+        const val PLAYBACK_STATE_PAUSED = 0
+        const val PLAYBACK_STATE_PLAYING = 1
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
         const val MAX_QUEUED_PACKETS = 192
         const val PREBUFFER_WRITE_CHUNK_BYTES = 2 * 1024

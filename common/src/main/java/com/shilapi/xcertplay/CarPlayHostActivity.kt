@@ -5219,13 +5219,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
             mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this, wireless = wirelessEnabled),
-            onAudioDiagnostic = { message ->
-                if (message.startsWith("Microphone: ")) {
-                    AsyncDiagnosticLog.append(diagnosticLog, message)
-                } else {
-                    diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
-                }
-            },
+            onAudioDiagnostic = { message -> AsyncDiagnosticLog.append(diagnosticLog, message) },
             onMediaAudioChanged = CarPlayMediaKeys::onMediaAudioChanged,
             callEchoCancellation = AirPlayPersistence.loadCallEchoCancellation(this),
             callVoiceFilter = AirPlayPersistence.loadCallVoiceFilter(this),
@@ -5367,7 +5361,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     DisplayDiagnosticSnapshot.record(this@CarPlayHostActivity, displayDiagnosticAttempt, message)
                     if (message.contains("command type=disableBluetooth")) carProfileDiagnostics?.probe("disableBluetooth")
                     if (menuOpen) {
-                        appendFileLog(message)
+                        AsyncDiagnosticLog.append(diagnosticLog, message)
                         return@runOnUiThread
                     }
                     if (message.startsWith(PROTOCOL_TRACE_PREFIX)) {

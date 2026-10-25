@@ -8,6 +8,12 @@ internal class AudioBufferProgress(private val frameBytes: Int) {
 
     fun written(bytes: Int) { writtenBytes += bytes }
 
+    fun reset(rawHead: Int = 0) {
+        writtenBytes = 0L
+        playedFrames = 0L
+        lastHead = rawHead.toLong() and 0xffff_ffffL
+    }
+
     fun queuedBytes(rawHead: Int): Long {
         val head = rawHead.toLong() and 0xffff_ffffL
         playedFrames += (head - lastHead) and 0xffff_ffffL

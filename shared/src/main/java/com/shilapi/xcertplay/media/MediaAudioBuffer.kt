@@ -35,7 +35,9 @@ object MediaAudioBuffer {
         if (!isMedia) return lowLatency
         val bytesPerSecond = sampleRate.toLong() * channels.coerceIn(1, 2) * 2
         if (ts7Music) return Plan(
-            trackBufferBytes = maxOf((bytesPerSecond * Ts7MusicBuffer.TRACK_MILLIS / 1000).toInt(), lowLatency.trackBufferBytes),
+            // Build at the largest adaptive limit. AudioRenderer shrinks the active ring to
+            // targetMs + the shared queue headroom, then changes it as the target moves.
+            trackBufferBytes = maxOf((bytesPerSecond * Ts7MusicBuffer.MAX_QUEUE_MILLIS / 1000).toInt(), lowLatency.trackBufferBytes),
             startBytes = maxOf((bytesPerSecond * maxOf(Ts7MusicBuffer.INITIAL_MILLIS, sanitize(mediaMillis)) / 1000).toInt(), lowLatency.startBytes),
         )
         val start = (bytesPerSecond * sanitize(mediaMillis) / 1000).toInt()
