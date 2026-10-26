@@ -29,6 +29,14 @@ class VideoStatsTest {
         stats.onFrameDecoded(receivedAt, decodedAt)
         now += 5_000_000L
         stats.onFrameSubmittedToSurface(decodedAt, now)
+        stats.setOutputThreadState("fallback(no_output_2s)")
+        stats.onQueueDepth(1)
+        stats.onQueueDepth(3)
+        stats.onInputAcquire(200_000L)
+        stats.onInputAcquire(400_000L)
+        stats.onInFlight(2)
+        stats.onDrainYield(4)
+        repeat(5) { stats.onDroppedRender() }
         stats.onRendered()
         now += 5_000_000_000L
         val line = checkNotNull(stats.logIfDue())
@@ -41,5 +49,9 @@ class VideoStatsTest {
         assertTrue(line, line.contains("hid2FrameReceived p50=80.0ms p90=80.0ms max=80.0ms n=1"))
         assertTrue(line, line.contains("frameReceived2DecodeOutput p50=25.0ms p90=25.0ms max=25.0ms n=1"))
         assertTrue(line, line.contains("decodeOutput2SurfaceSubmit p50=5.0ms p90=5.0ms max=5.0ms n=1"))
+        assertTrue(line, line.endsWith(
+            "outputThread=fallback(no_output_2s) qDepth=2.0/3 inputAcquireMs=0.2/0.4 " +
+                "inFlight=2 drainYield=4 dropRender=5",
+        ))
     }
 }

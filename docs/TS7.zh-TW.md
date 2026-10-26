@@ -7,8 +7,19 @@ DiPlay 是安卓車機上的無線／有線 CarPlay 接收程式。
 
 - 安裝包名：`com.shihab.diplay.ts7`
 - App 名稱：`DiPlay TS7`
-- 版本名稱：`0.2.21-ts7-wudi81-v21.4`
-- versionCode：`53`
+- 版本名稱：`0.2.21-ts7-wudi81-v21.5`
+- versionCode：`54`
+
+## v21.5 修改（2026-10-27）
+
+本版影像管線尚未在 TS7 實車驗證。詳細內容與診斷欄位說明見 [v21.5 發布說明](RELEASE-NOTES-ts7-v21.5.zh-TW.md)。
+
+- TS7 改用專用送顯執行緒，避免解碼完成後等待原本的輪詢才送出畫面。decoder worker 也使用顯示優先序。
+- 如果送顯執行緒出錯，或解碼器有待輸出的影格超過 2 秒，DiPlay 會重建 decoder、要求關鍵幀，並退回原本的單執行緒送顯方式。
+- 沒有畫面 pacing 時，如果已有多張解碼完成，DiPlay 只把最新一張送到螢幕。其他影格仍會解碼，不會丟棄輸入影格。
+- 影像統計新增輸出執行緒狀態、解碼佇列深度、輸入 buffer 等待時間、未輸出的影格數、單次排空數及跳過送顯數。
+- 接收統計新增 socket 讀取時間與影像解密時間的 p50/max。
+- 以上影像行為只在 TS7 啟用；其他車機維持原本的送顯方式。音訊、解析度預設與影格率沒有變更。
 
 ## v21.4 修改（2026-10-26）
 
@@ -68,7 +79,7 @@ DiPlay 是安卓車機上的無線／有線 CarPlay 接收程式。
 ## 安裝前要做的事
 
 1. 移除舊的「DiPlay TS7」v0.2.48。
-   舊版的 versionCode 是 68，本版是 53。Android 不允許用較小的 versionCode 覆蓋安裝。
+   舊版的 versionCode 是 68，本版是 54。Android 不允許用較小的 versionCode 覆蓋安裝。
    移除舊版也會清掉舊設定，TS7 預設值才會生效。
 2. 移除或停用其他 DiPlay 版本，例如 `com.shihab.diplay` 和 `com.shihab.diplay.wudi81v18`。
    如果兩個 DiPlay 同時執行，兩個 App 會搶車機熱點和藍牙。

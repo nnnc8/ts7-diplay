@@ -1,11 +1,13 @@
 package com.shilapi.xcertplay.media
 
 import android.util.Log
+import java.util.Locale
 
 /** Five-second video counters that separate network/iPhone gaps from decoder throughput. */
 internal class VideoStats(
     private val label: String = "",
     private val nanoTime: () -> Long = System::nanoTime,
+    initialOutputThreadState: String = "off",
 ) {
     private var windowStartNs = nanoTime()
     private var lastArrivalNs = 0L
@@ -24,6 +26,16 @@ internal class VideoStats(
     private var decodeSamples = 0
     private var late = 0
     private var pacingDelayNanos = 0L
+    private val inputAcquireMicros = IntArray(512)
+    private var inputAcquireSamples = 0
+    private var maxInputAcquireMicros = 0
+    private var queueDepthSum = 0L
+    private var queueDepthSamples = 0
+    private var maxQueueDepth = 0
+    private var maxInFlight = 0
+    private var maxDrainYield = 0
+    private var dropRender = 0
+    private var outputThreadState = initialOutputThreadState
 
     @Synchronized fun onReceived(size: Int, receivedAtNs: Long = nanoTime()) {
         val now = receivedAtNs.takeIf { it > 0L } ?: nanoTime()
@@ -72,6 +84,35 @@ internal class VideoStats(
     /** Smooth video's current display delay ([PacingDelay]). */
     @Synchronized fun onPacingDelay(ns: Long) { pacingDelayNanos = ns }
 
+    @Synchronized fun onInputAcquire(ns: Long) {
+        val micros = (ns.coerceAtLeast(0L) / 1_000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        if (inputAcquireSamples < inputAcquireMicros.size) {
+            inputAcquireMicros[inputAcquireSamples++] = micros
+        }
+        maxInputAcquireMicros = maxOf(maxInputAcquireMicros, micros)
+    }
+
+    @Synchronized fun onQueueDepth(depth: Int) {
+        val safeDepth = depth.coerceAtLeast(0)
+        queueDepthSum += safeDepth
+        queueDepthSamples++
+        maxQueueDepth = maxOf(maxQueueDepth, safeDepth)
+    }
+
+    @Synchronized fun onInFlight(count: Int) {
+        maxInFlight = maxOf(maxInFlight, count.coerceAtLeast(0))
+    }
+
+    @Synchronized fun onDrainYield(count: Int) {
+        maxDrainYield = maxOf(maxDrainYield, count.coerceAtLeast(0))
+    }
+
+    @Synchronized fun onDroppedRender() { dropRender++ }
+
+    @Synchronized fun setOutputThreadState(state: String) {
+        outputThreadState = state
+    }
+
     private fun decodeSummary(): String {
         if (decodeSamples == 0) return ""
         val sorted = decodeMicros.copyOf(decodeSamples).also { it.sort() }
@@ -100,7 +141,7 @@ internal class VideoStats(
             (bytes * 8 / 1000 / seconds).toLong(), recoveries,
             touchAvgMs, maxTouchLatencyNs / 1_000_000, touchSamples, touchSendMaxMs,
             touchShownAvgMs, maxTouchShownLatencyNs / 1_000_000, touchShownSamples,
-        ) + decodeSummary() + (latencySummary?.let { " $it" } ?: "")
+        ) + decodeSummary() + (latencySummary?.let { " $it" } ?: "") + pipelineSummary()
         if (label.isEmpty()) TouchLatencyProbe.maxSendNs = 0
         Log.i(TAG, line)
         windowStartNs = now
@@ -108,7 +149,21 @@ internal class VideoStats(
         touchSamples = 0; touchLatencySumNs = 0; maxTouchLatencyNs = 0
         touchShownSamples = 0; touchShownLatencySumNs = 0; maxTouchShownLatencyNs = 0
         decodeSamples = 0; late = 0
+        inputAcquireSamples = 0; maxInputAcquireMicros = 0
+        queueDepthSum = 0; queueDepthSamples = 0; maxQueueDepth = 0
+        maxInFlight = 0; maxDrainYield = 0; dropRender = 0
         return line
+    }
+
+    private fun pipelineSummary(): String {
+        val sortedAcquire = inputAcquireMicros.copyOf(inputAcquireSamples).also { it.sort() }
+        val acquireP50 = if (sortedAcquire.isEmpty()) 0 else sortedAcquire[(sortedAcquire.size - 1) / 2]
+        val queueAverage = if (queueDepthSamples == 0) 0.0 else queueDepthSum.toDouble() / queueDepthSamples
+        return " outputThread=$outputThreadState" +
+            " qDepth=${String.format(Locale.US, "%.1f", queueAverage)}/$maxQueueDepth" +
+            " inputAcquireMs=${String.format(Locale.US, "%.1f", acquireP50 / 1000.0)}/" +
+            "${String.format(Locale.US, "%.1f", maxInputAcquireMicros / 1000.0)}" +
+            " inFlight=$maxInFlight drainYield=$maxDrainYield dropRender=$dropRender"
     }
 
     private companion object {

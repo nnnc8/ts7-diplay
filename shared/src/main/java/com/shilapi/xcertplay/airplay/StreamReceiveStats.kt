@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
+import java.util.Locale
+
 /** Receive-thread timing only: no payloads, endpoint addresses, or route data. */
 internal class StreamReceiveStats(
     private val label: String,
@@ -31,6 +33,10 @@ internal class StreamReceiveStats(
     private var decryptBytes = 0L
     private var decryptSumNs = 0L
     private var maxDecryptNs = 0L
+    private val readMicros = IntArray(MAX_TIMING_SAMPLES)
+    private var readSamples = 0
+    private val decryptMicros = IntArray(MAX_TIMING_SAMPLES)
+    private var decryptTimingSamples = 0
 
     fun reading() { readStart = nowNs() }
 
@@ -38,6 +44,9 @@ internal class StreamReceiveStats(
         processingStart = nowNs()
         val readNs = processingStart - readStart
         maxReadNs = maxOf(maxReadNs, readNs)
+        if (readSamples < readMicros.size) {
+            readMicros[readSamples++] = durationMicros(readNs)
+        }
         if (readNs >= LONG_READ_NS) readsOver250Ms++
         if (lastReceivedNs != 0L) {
             maxInterArrivalNs = maxOf(maxInterArrivalNs, processingStart - lastReceivedNs)
@@ -74,6 +83,9 @@ internal class StreamReceiveStats(
         decryptBytes += size
         decryptSumNs += durationNs
         maxDecryptNs = maxOf(maxDecryptNs, durationNs)
+        if (decryptTimingSamples < decryptMicros.size) {
+            decryptMicros[decryptTimingSamples++] = durationMicros(durationNs)
+        }
     }
 
     fun processed() {
@@ -92,12 +104,14 @@ internal class StreamReceiveStats(
             "windowMs=${(now - windowStart).coerceAtLeast(0) / 1_000_000} " +
             "readsOver250Ms=$readsOver250Ms seqGapAfterReadOver250Ms=$seqGapAfterReadOver250Ms " +
             "seqMissingAfterReadOver250Ms=$seqMissingAfterReadOver250Ms" + decryptSummary() +
-            " decryptImpl=${decryptImplementation()}") }
+            " decryptImpl=${decryptImplementation()}" + timingSummary()) }
         windowStart = now
         decryptSamples = 0
         decryptBytes = 0
         decryptSumNs = 0
         maxDecryptNs = 0
+        readSamples = 0
+        decryptTimingSamples = 0
         packets = 0
         bytes = 0
         maxReadNs = 0
@@ -123,6 +137,27 @@ internal class StreamReceiveStats(
             "decryptMBps=$mbPerSecond"
     }
 
-    private companion object { const val LONG_READ_NS = 250_000_000L }
+    private fun timingSummary(): String {
+        val sortedRead = readMicros.copyOf(readSamples).also { it.sort() }
+        val sortedDecrypt = decryptMicros.copyOf(decryptTimingSamples).also { it.sort() }
+        val readP50 = sortedRead.getOrNull((sortedRead.size - 1) / 2) ?: 0
+        val decryptP50 = sortedDecrypt.getOrNull((sortedDecrypt.size - 1) / 2) ?: 0
+        return " readMs=${formatMicrosAsMs(readP50)}/${formatNanosAsMs(maxReadNs)}" +
+            " decryptMs=${formatMicrosAsMs(decryptP50)}/${formatNanosAsMs(maxDecryptNs)}"
+    }
+
+    private fun durationMicros(nanos: Long): Int =
+        (nanos.coerceAtLeast(0L) / 1_000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+    private fun formatMicrosAsMs(micros: Int): String =
+        String.format(Locale.US, "%.1f", micros / 1_000.0)
+
+    private fun formatNanosAsMs(nanos: Long): String =
+        String.format(Locale.US, "%.1f", nanos.coerceAtLeast(0L) / 1_000_000.0)
+
+    private companion object {
+        const val LONG_READ_NS = 250_000_000L
+        const val MAX_TIMING_SAMPLES = 512
+    }
 
 }

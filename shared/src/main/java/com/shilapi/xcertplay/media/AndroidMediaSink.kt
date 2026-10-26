@@ -26,6 +26,7 @@ import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 import com.shilapi.xcertplay.hud.BydBluetoothSuspend
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -703,7 +704,7 @@ class AndroidMediaSink(
         pacingDelayNanos = if (type == MAIN_SCREEN_TYPE && statsLabel == null) videoPacingDelayMillis * 1_000_000L else 0L,
         operatingRate = videoOperatingRate(type, statsLabel, mainVideoFrameRate),
         vendorLowLatency = vendorLowLatencyDecoder,
-        dedicatedOutputThread = vendorLowLatencyDecoder,
+        dedicatedOutputThread = shouldUseDedicatedVideoOutputThread(vendorLowLatencyDecoder),
         framesAtOnce = type == MAIN_SCREEN_TYPE && statsLabel == null && videoPacingDelayMillis > 0,
         // Keep the experimental MTK mode on the main CarPlay picture only. Mirrors and the
         // cluster have separate timing and must retain their established decoder configuration.
@@ -973,7 +974,11 @@ private class VideoDecoder(
     private val backlogRecovery = VideoBacklogRecovery()
     private var lastKeyFrameRequestNs = 0L
     // The main screen keeps the historical log format; other screens are labelled.
-    private val stats = VideoStats(statsLabel ?: if (streamType == MAIN_SCREEN_TYPE) "" else " stream=$streamType")
+    private val stats = VideoStats(
+        statsLabel ?: if (streamType == MAIN_SCREEN_TYPE) "" else " stream=$streamType",
+        initialOutputThreadState = if (dedicatedOutputThread) "on" else "off",
+    )
+    private val outputWatchdog = VideoOutputThreadWatchdog(OUTPUT_FALLBACK_TIMEOUT_NS)
     // Running totals for the live FPS counter, read from the UI thread.
     private val liveReceived = AtomicLong()
     private val liveRendered = AtomicLong()
@@ -987,9 +992,13 @@ private class VideoDecoder(
         decodeSamples = liveDecodeSamples.get(),
     )
     private val thread = Thread(::run, "carplay-video").apply { isDaemon = true }
+    private val workerOutputInfo = MediaCodec.BufferInfo()
+    private val workerNextOutputInfo = MediaCodec.BufferInfo()
     private val outputThread = if (dedicatedOutputThread) {
         Thread(::runOutput, "carplay-video-output").apply { isDaemon = true }
     } else null
+    @Volatile private var outputThreadActive = dedicatedOutputThread
+    @Volatile private var outputThreadFallbackReason: String? = null
     // Guards the codec handoff between the worker and the output thread: [decoder] changes, [outputSurface]
     // and [parking] changes, the per-frame bookkeeping, and the output thread's handling of one buffer.
     // The output thread waits inside dequeueOutputBuffer without it.
@@ -1061,18 +1070,22 @@ private class VideoDecoder(
     }
 
     private fun run() {
+        if (shouldElevateVideoDecoderThreadPriority()) {
+            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
+        }
         try {
             while (running) {
                 val job = queue.poll(5)
-                outputFailure?.let { failure ->
-                    outputFailure = null
-                    onJobFailure("output", failure)
-                }
                 try {
+                    outputFailure?.let { failure ->
+                        outputFailure = null
+                        if (!fallbackOutputThread("exception")) onJobFailure("output", failure)
+                    }
                     when (job) {
                         is VideoJob.Config -> configureDecoder(job)
                         is VideoJob.Frame -> {
                             val backlog = queue.backlogAfterCurrent()
+                            stats.onQueueDepth(backlog.pendingFrames)
                             val overloaded = !referenceChain.needsKeyFrame && backlogRecovery.observe(
                                 System.nanoTime(), job.receivedNs,
                                 backlog.pendingFrames, backlog.newestPendingReceivedNs,
@@ -1096,7 +1109,9 @@ private class VideoDecoder(
                         is VideoJob.Resync -> recover("video queue overflow")
                         null -> Unit
                     }
-                    if (outputThread == null) decoder?.let(::drainOutput)
+                    if (!isOutputThreadActive()) decoder?.let(::drainOutput)
+                    checkOutputThreadTimeout()
+                    observeInFlight()
                     stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
@@ -1144,11 +1159,58 @@ private class VideoDecoder(
         requestKeyFrameIfDue()
     }
 
+    private fun fallbackOutputThread(reason: String): Boolean {
+        val switched = synchronized(outputLock) { enterOutputThreadFallback(reason) }
+        if (!switched) return false
+        finishOutputThreadFallback(reason)
+        return true
+    }
+
+    private fun checkOutputThreadTimeout() {
+        var reason: String? = null
+        synchronized(outputLock) {
+            if (Ts7HeadUnit.detected && outputThreadActive) {
+                val candidate = outputWatchdog.fallbackReason(System.nanoTime())
+                if (candidate != null && enterOutputThreadFallback(candidate)) reason = candidate
+            }
+        }
+        reason?.let(::finishOutputThreadFallback)
+    }
+
+    /** Called with outputLock held so the output worker cannot hand out another buffer after fallback. */
+    private fun enterOutputThreadFallback(reason: String): Boolean {
+        if (!Ts7HeadUnit.detected || !outputThreadActive) return false
+        outputThreadActive = false
+        outputThreadFallbackReason = reason
+        outputFailure = null
+        stats.setOutputThreadState("fallback(" + reason + ")")
+        outputLock.notifyAll()
+        return true
+    }
+
+    private fun finishOutputThreadFallback(reason: String) {
+        report("outputThread fallback=" + reason + "; decoder reset; waiting for keyframe")
+        val config = lastConfig
+        releaseDecoder()
+        queue.discardCurrentChain()
+        referenceChain.reset()
+        config?.let(::configureDecoder)
+        lastKeyFrameRequestNs = 0L
+        requestKeyFrameIfDue()
+    }
+
+    private fun isOutputThreadActive(): Boolean = outputThread != null && outputThreadActive
+
+    private fun observeInFlight() {
+        synchronized(outputLock) { stats.onInFlight(outputWatchdog.inFlight) }
+    }
+
     /** The output thread: waits on the current codec's output and releases each frame as it comes. */
     private fun runOutput() {
         runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
         val info = MediaCodec.BufferInfo()
-        while (running) {
+        val nextInfo = MediaCodec.BufferInfo()
+        while (running && outputThreadActive) {
             val codec = synchronized(outputLock) {
                 val current = decoder
                 if (current == null || outputFailure != null) {
@@ -1173,7 +1235,8 @@ private class VideoDecoder(
                 if (decoder === codec) {
                     try {
                         if (failure != null) throw failure
-                        handleOutput(codec, index, info)
+                        if (index >= 0 && Ts7HeadUnit.detected) drainReadyOutputs(codec, index, info, nextInfo)
+                        else handleOutput(codec, index, info)
                     } catch (error: Exception) {
                         if (running) outputFailure = error
                     }
@@ -1272,7 +1335,11 @@ private class VideoDecoder(
         if (configured != null) {
             val rate = if (requestedRate > 0) " operatingRate=$configuredRate" else ""
             val lowLatency = if (vendorLowLatency) " vendorLowLatency=$configuredVendorLowLatency" else ""
-            val output = if (outputThread != null) " outputThread=true" else ""
+            val output = when {
+                outputThread == null -> ""
+                outputThreadActive -> " outputThread=true"
+                else -> " outputThread=fallback(" + outputThreadFallbackReason + ")"
+            }
             val atOnceReport = if (atOnce) " lowLatency=$startedLowLatency pictureOrder=$startedPictureOrder" else ""
             val lowDelay = configuredLowDelaySpsKind?.let { kind ->
                 val value = when (kind) {
@@ -1593,10 +1660,12 @@ private class VideoDecoder(
                 "video decoder first input avcc=${nalus.size} annexB=${prepared.frameBytes.size}",
             )
         }
+        val acquireStartedNs = System.nanoTime()
         val index = DecoderInputPump.acquire(
-            running = { running }, drain = { if (outputThread == null) drainOutput(codec) },
+            running = { running }, drain = { if (!isOutputThreadActive()) drainOutput(codec) },
             dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
         )
+        stats.onInputAcquire(System.nanoTime() - acquireStartedNs)
         if (index < 0) {
             dropMtkTuning("video decoder input stalled")
             dropMtkCodec2LowLatency("video decoder input stalled")
@@ -1619,6 +1688,8 @@ private class VideoDecoder(
                 queuedArrivalNanos[queuedSlot] = arrivalNs
                 queuedPaced[queuedSlot] = presentNs > 0
                 queuedBeforePause[queuedSlot] = false
+                outputWatchdog.inputQueued(queuedNow)
+                stats.onInFlight(outputWatchdog.inFlight)
                 if (presentNs > 0) {
                     // A gap between consecutive iPhone frame times, not a decoder backlog, marks a pause.
                     if (lastQueuedLocalNanos != 0L && presentNs - lastQueuedLocalNanos > SENDER_PAUSE_NS) {
@@ -1637,7 +1708,7 @@ private class VideoDecoder(
             recover("video frame exceeded codec input capacity")
             return
         }
-        if (outputThread == null) drainOutput(codec)
+        if (!isOutputThreadActive()) drainOutput(codec)
     }
 
     /** Queue the AUD without waiting; this buffer is not a decoded frame and gets no bookkeeping slot. */
@@ -1684,23 +1755,97 @@ private class VideoDecoder(
         queuedPresentationUs.indices.firstOrNull { queuedPresentationUs[it] == presentationUs } ?: -1
 
     private fun drainOutput(codec: MediaCodec) {
-        val info = MediaCodec.BufferInfo()
+        val info = workerOutputInfo
+        val nextInfo = workerNextOutputInfo
+        var outputCount = 0
         while (running) {
-            if (!handleOutput(codec, codec.dequeueOutputBuffer(info, 0), info)) return
+            val index = codec.dequeueOutputBuffer(info, 0)
+            if (index >= 0 && Ts7HeadUnit.detected) {
+                outputCount += drainReadyOutputs(codec, index, info, nextInfo, recordYield = false)
+            } else {
+                val keepDraining = handleOutput(codec, index, info)
+                if (index >= 0) outputCount++
+                if (!keepDraining) break
+            }
         }
+        stats.onDrainYield(outputCount)
+    }
+
+    /** Drain buffers that are ready now; on TS7, release older unpaced frames without rendering them. */
+    private fun drainReadyOutputs(
+        codec: MediaCodec,
+        firstIndex: Int,
+        currentInfo: MediaCodec.BufferInfo,
+        nextInfo: MediaCodec.BufferInfo,
+        recordYield: Boolean = true,
+    ): Int {
+        var currentIndex = firstIndex
+        var outputCount = 0
+        val pacingNanos = if (pacingDelay == null) 0L else 1L
+        val skipOlder = shouldSkipOlderVideoOutput(
+            hasNewerReady = true,
+            pacingDelayNanos = pacingNanos,
+            framesAtOnce = framesAtOnce,
+        )
+        if (skipOlder) {
+            while (running) {
+                val nextIndex = codec.dequeueOutputBuffer(nextInfo, 0)
+                when {
+                    nextIndex >= 0 -> {
+                        handleOutput(codec, currentIndex, currentInfo, skipRender = true)
+                        outputCount++
+                        currentIndex = nextIndex
+                        currentInfo.set(nextInfo.offset, nextInfo.size, nextInfo.presentationTimeUs, nextInfo.flags)
+                    }
+                    nextIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> handleOutput(codec, nextIndex, nextInfo)
+                    else -> break
+                }
+            }
+            handleOutput(codec, currentIndex, currentInfo)
+            outputCount++
+        } else {
+            val keepDraining = handleOutput(codec, currentIndex, currentInfo)
+            outputCount++
+            if (keepDraining) {
+                while (running) {
+                    val nextIndex = codec.dequeueOutputBuffer(nextInfo, 0)
+                    when {
+                        nextIndex >= 0 -> {
+                            val keepGoing = handleOutput(codec, nextIndex, nextInfo)
+                            outputCount++
+                            if (!keepGoing) break
+                        }
+                        nextIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> handleOutput(codec, nextIndex, nextInfo)
+                        else -> break
+                    }
+                }
+            }
+        }
+        if (recordYield) stats.onDrainYield(outputCount)
+        return outputCount
     }
 
     /** Handles one dequeueOutputBuffer result; false when there is nothing more to drain for now. */
-    private fun handleOutput(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo): Boolean {
+    private fun handleOutput(
+        codec: MediaCodec,
+        index: Int,
+        info: MediaCodec.BufferInfo,
+        skipRender: Boolean = false,
+    ): Boolean {
         when {
             index == MediaCodec.INFO_TRY_AGAIN_LATER -> return false
             index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> logOutputFormat(codec.outputFormat)
             index >= 0 -> {
-                val render = outputSurface != null
+                val render = outputSurface != null && !skipRender
                 // Parked output goes to the offscreen consumer: it keeps the codec's state, but it is
                 // not shown, so it is neither paced nor counted.
                 val shown = render && outputSurface !== parking?.surface
                 val now = System.nanoTime()
+                outputWatchdog.outputDequeued(now)
+                stats.onInFlight(outputWatchdog.inFlight)
+                if (skipRender && outputSurface != null && outputSurface !== parking?.surface) {
+                    stats.onDroppedRender()
+                }
                 val slot = queuedSlotOf(info.presentationTimeUs)
                 val queued = if (slot >= 0) queuedAtNanos[slot] else 0L
                 val arrived = if (slot >= 0) queuedArrivalNanos[slot] else 0L
@@ -1782,6 +1927,8 @@ private class VideoDecoder(
             decoder = null
             // The output thread returns from dequeueOutputBuffer within its timeout and then sees no codec.
             awaitNotDequeuing(codec)
+            outputWatchdog.reset()
+            stats.onInFlight(0)
         }
         configuredRate = 0
         configuredMtkMode = MtkDecoderMode.NONE
@@ -1831,6 +1978,7 @@ private class VideoDecoder(
         const val OUTPUT_TIMEOUT_US = 10_000L
         const val OUTPUT_IDLE_WAIT_MS = 10L
         const val OUTPUT_EXIT_WAIT_MS = 500L
+        const val OUTPUT_FALLBACK_TIMEOUT_NS = 2_000_000_000L
         const val INPUT_TIMEOUT_US = 10_000L
         // A paced frame more than this ahead is treated as a bad mapping and shown at once.
         const val MAX_PACING_AHEAD_NS = 1_000_000_000L

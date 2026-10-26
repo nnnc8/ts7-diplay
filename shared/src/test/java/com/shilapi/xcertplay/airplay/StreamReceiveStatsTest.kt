@@ -47,6 +47,7 @@ class StreamReceiveStatsTest {
         assertEquals(1, output.size)
         assertTrue(output.single().contains("readMaxMs=400 processMaxUs=200 seqForwardGaps=2 lateOrDuplicate=1"))
         assertTrue(output.single().contains("packets=5 bytes=500"))
+        assertTrue(output.single().endsWith("readMs=400.0/400.0 decryptMs=0.0/0.0"))
     }
 
     @Test fun reportResetsWindowButRetainsSequenceContinuity() {
@@ -76,12 +77,15 @@ class StreamReceiveStatsTest {
         stats.processed()
         clock = 5_000_000_000L
         stats.flush()
-        assertTrue(output.last().endsWith(
+        assertTrue(output.last().contains(
             " decryptAvgUs=1250 decryptMaxUs=2000 decryptMBps=300 decryptImpl=native",
         ))
+        assertTrue(output.last().endsWith("readMs=0.0/0.0 decryptMs=0.5/2.0"))
         clock = 10_000_000_000L
         stats.flush()
         assertTrue(!output.last().contains("decryptAvgUs"))
-        assertTrue(output.last().endsWith("decryptImpl=native"))
+        assertTrue(output.last().endsWith(
+            "decryptImpl=native readMs=0.0/0.0 decryptMs=0.0/0.0",
+        ))
     }
 }
