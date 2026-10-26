@@ -991,7 +991,10 @@ object WheelZoomSettings {
     /** The mode key switches zoom mode until pressed again, or turns it on for a few seconds. */
     enum class Behaviour { TOGGLE, TIMED }
 
-    fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
+    fun enabled(context: Context): Boolean = enabled(context, com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
+
+    internal fun enabled(context: Context, ts7: Boolean): Boolean = !ts7 &&
+        prefs(context).getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
@@ -1006,7 +1009,10 @@ object WheelZoomSettings {
         WheelKeyService.settingsChanged()
     }
 
-    fun joystick(context: Context): Boolean = prefs(context).getBoolean(KEY_JOYSTICK, false)
+    fun joystick(context: Context): Boolean = joystick(context, com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
+
+    internal fun joystick(context: Context, ts7: Boolean): Boolean = !ts7 &&
+        prefs(context).getBoolean(KEY_JOYSTICK, false)
 
     fun setJoystick(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_JOYSTICK, enabled).apply()
@@ -1030,7 +1036,11 @@ object WheelZoomSettings {
     }
 
     /** With this on, only the wheel's long press opens Siri; a short press of the voice key does nothing. */
-    fun siriLongPressOnly(context: Context): Boolean = prefs(context).getBoolean(KEY_SIRI_LONG_ONLY, false)
+    fun siriLongPressOnly(context: Context): Boolean =
+        siriLongPressOnly(context, com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
+
+    internal fun siriLongPressOnly(context: Context, ts7: Boolean): Boolean = !ts7 &&
+        prefs(context).getBoolean(KEY_SIRI_LONG_ONLY, false)
 
     fun setSiriLongPressOnly(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_SIRI_LONG_ONLY, enabled).apply()

@@ -24,7 +24,13 @@ internal object UsbPermissionSetup {
         }.getOrDefault(false)
     }
 
-    fun snapshot(context: Context): Map<Permission, Boolean> = Permission.entries.associateWith { it.granted(context) }
+    fun permissionsFor(ts7: Boolean): Set<Permission> =
+        if (ts7) setOf(Permission.USAGE, Permission.OVERLAY) else Permission.entries.toSet()
+
+    fun snapshot(
+        context: Context,
+        permissions: Set<Permission> = Permission.entries.toSet(),
+    ): Map<Permission, Boolean> = permissions.associateWith { it.granted(context) }
 
     internal interface Client : Closeable {
         fun connect(): LocalAdb.Access
@@ -44,14 +50,16 @@ internal object UsbPermissionSetup {
         val access: LocalAdb.Access,
         val verified: Map<Permission, Boolean>,
         val commandsFailed: Set<Permission> = emptySet(),
+        val requested: Set<Permission> = Permission.entries.toSet(),
     ) {
         val complete: Boolean get() = access == LocalAdb.Access.READY && commandsFailed.isEmpty() &&
-            verified.size == Permission.entries.size && verified.values.all { it }
+            requested.isNotEmpty() && requested.all { verified[it] == true }
     }
 
     class Operation(
         private val context: Context,
         private val factory: () -> Client = { AdbClient(context) },
+        private val permissions: Set<Permission> = Permission.entries.toSet(),
         private val granted: (Permission) -> Boolean = { it.granted(context) },
     ) {
         private val cancelled = AtomicBoolean(false)
@@ -68,7 +76,7 @@ internal object UsbPermissionSetup {
         fun run(): Result {
             var access = LocalAdb.Access.UNREACHABLE
             val failed = mutableSetOf<Permission>()
-            if (isCancelled) return Result(access, emptyMap())
+            if (isCancelled) return Result(access, emptyMap(), requested = permissions)
             runCatching {
                 factory().use { adb ->
                     synchronized(lock) {
@@ -78,7 +86,7 @@ internal object UsbPermissionSetup {
                     if (isCancelled) return@use
                     access = adb.connect()
                     if (access != LocalAdb.Access.READY || isCancelled) return@use
-                    for (permission in Permission.entries) {
+                    for (permission in Permission.entries.filter { it in permissions }) {
                         if (isCancelled) break
                         if (granted(permission)) continue
                         val command = command(permission, context.packageName)
@@ -88,12 +96,12 @@ internal object UsbPermissionSetup {
                         if (output?.lineSequence()?.lastOrNull() != "$EXIT_MARKER:0") failed += permission
                     }
                 }
-            }.onFailure { failed += Permission.entries }
+            }.onFailure { failed += permissions }
             synchronized(lock) { client = null }
-            val verified = if (isCancelled) emptyMap() else Permission.entries.associateWith {
+            val verified = if (isCancelled) emptyMap() else permissions.associateWith {
                 runCatching { granted(it) }.getOrDefault(false)
             }
-            return Result(access, verified, failed)
+            return Result(access, verified, failed, permissions)
         }
     }
 
@@ -126,7 +134,10 @@ internal object UsbPermissionSetup {
         }
     }
 
-    fun manualCommand(packageName: String): String = Permission.entries.joinToString(" && ") {
+    fun manualCommand(
+        packageName: String,
+        permissions: Set<Permission> = Permission.entries.toSet(),
+    ): String = Permission.entries.filter { it in permissions }.joinToString(" && ") {
         "adb shell ${quote(command(it, packageName))}"
     }
 }

@@ -1022,4 +1022,6 @@
 
     <string name="settings_hotspot_interface">ホットスポットのインターフェース（任意）</string>
     <string name="settings_hotspot_interface_description">Android が Wi-Fi ホットスポットとして報告しないネットワークインターフェースでホットスポットを動かすヘッドユニット専用です。一部の Geely、Lynk &amp; Co、その他の Qualcomm ユニットでは eth0.3 です。空欄のままにすると自動で検出します。</string>
+    <string name="settings_auto_apply_map_permissions">地図の権限を設定</string>
+    <string name="settings_connection_summary_wireless">iPhone・無線・自動接続</string>
 </resources>

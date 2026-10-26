@@ -411,11 +411,17 @@ object AirPlayPersistence {
             mode
         }
 
-    fun loadWifiP2pPreferredChannel(context: Context): Int = runCatching {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_WIFI_P2P_PREFERRED_CHANNEL, WifiP2pChannels.AUTO)
-            .takeIf(WifiP2pChannels::isValid) ?: WifiP2pChannels.AUTO
-    }.getOrDefault(WifiP2pChannels.AUTO)
+    fun loadWifiP2pPreferredChannel(context: Context): Int =
+        loadWifiP2pPreferredChannel(context, Ts7HeadUnit.detected)
+
+    internal fun loadWifiP2pPreferredChannel(context: Context, ts7: Boolean): Int {
+        if (ts7) return WifiP2pChannels.AUTO
+        return runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getInt(KEY_WIFI_P2P_PREFERRED_CHANNEL, WifiP2pChannels.AUTO)
+                .takeIf(WifiP2pChannels::isValid) ?: WifiP2pChannels.AUTO
+        }.getOrDefault(WifiP2pChannels.AUTO)
+    }
 
     fun saveWifiP2pPreferredChannel(context: Context, channel: Int) {
         require(WifiP2pChannels.isValid(channel))
@@ -425,6 +431,9 @@ object AirPlayPersistence {
 
     /** Wi-Fi Direct: pause the car's own Wi-Fi search while CarPlay runs (on by default, needs ADB). */
     fun loadWifiDirectScanPause(context: Context): Boolean =
+        loadWifiDirectScanPause(context, Ts7HeadUnit.detected)
+
+    internal fun loadWifiDirectScanPause(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_WIFI_DIRECT_SCAN_PAUSE, true)
 
     fun saveWifiDirectScanPause(context: Context, enabled: Boolean) {

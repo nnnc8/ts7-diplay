@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import android.content.Context
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import java.io.File
 import java.security.MessageDigest
@@ -59,6 +60,9 @@ internal enum class DefaultConnectionMode(val key: String) {
 
     companion object {
         fun fromKey(key: String?): DefaultConnectionMode = entries.firstOrNull { it.key == key } ?: LAST_USED
+
+        fun available(ts7: Boolean): List<DefaultConnectionMode> =
+            if (ts7) listOf(WIRELESS) else entries
     }
 }
 
@@ -69,10 +73,17 @@ internal object DiPlayPreferences {
     fun savePhone(context: Context, address: String, name: String) {
         prefs(context).edit().putString("phone_address", address).putString("phone_name", name).apply()
     }
-    fun defaultConnectionMode(context: Context) =
-        DefaultConnectionMode.fromKey(prefs(context).getString("default_connection_mode", null))
-    fun saveDefaultConnectionMode(context: Context, mode: DefaultConnectionMode) {
-        prefs(context).edit().putString("default_connection_mode", mode.key).apply()
+    fun defaultConnectionMode(context: Context) = defaultConnectionMode(context, Ts7HeadUnit.detected)
+    internal fun defaultConnectionMode(context: Context, ts7: Boolean) =
+        if (ts7) DefaultConnectionMode.WIRELESS
+        else DefaultConnectionMode.fromKey(prefs(context).getString("default_connection_mode", null))
+
+    fun saveDefaultConnectionMode(context: Context, mode: DefaultConnectionMode) =
+        saveDefaultConnectionMode(context, mode, Ts7HeadUnit.detected)
+
+    internal fun saveDefaultConnectionMode(context: Context, mode: DefaultConnectionMode, ts7: Boolean) {
+        prefs(context).edit().putString("default_connection_mode",
+            (if (ts7) DefaultConnectionMode.WIRELESS else mode).key).apply()
     }
     fun autoConnectWireless(context: Context) =
         defaultConnectionMode(context).wireless(AirPlayPersistence.loadWirelessEnabled(context))

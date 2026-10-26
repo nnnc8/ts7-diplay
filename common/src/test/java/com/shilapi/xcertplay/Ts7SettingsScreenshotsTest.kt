@@ -42,30 +42,49 @@ class Ts7SettingsScreenshotsTest {
                 ).setup().get()
                 try {
                     ReflectionHelpers.setField(activity, "settingsTs7Override", true)
-                    ReflectionHelpers.callInstanceMethod<Unit>(activity, "render")
-                    ReflectionHelpers.callInstanceMethod<Unit>(activity, "openSettingsCategory",
-                        ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.ADVANCED))
-                    val decor = activity.window.decorView
                     val width = (widthDp * activity.resources.displayMetrics.density).toInt()
                     val height = (720 * activity.resources.displayMetrics.density).toInt()
-                    decor.measure(
-                        View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
-                    )
-                    decor.layout(0, 0, width, height)
-                    assertTrue("Settings screen must render at ${widthDp}dp", decor.width > 0 && decor.height > 0)
-
                     val directory = File("build/reports/ts7-settings").apply { mkdirs() }
-                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                    try {
-                        decor.draw(Canvas(bitmap))
-                        val screenshot = File(directory, "$name-font-1.3.png")
-                        screenshot.outputStream().use { output ->
-                            assertTrue("PNG encoder must write ${screenshot.name}",
-                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+                    fun capture(suffix: String, configure: (DiPlayActivity) -> Unit) {
+                        configure(activity)
+                        val decor = activity.window.decorView
+                        decor.measure(
+                            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+                        )
+                        decor.layout(0, 0, width, height)
+                        assertTrue("$suffix screen must render at ${widthDp}dp", decor.width > 0 && decor.height > 0)
+
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        try {
+                            decor.draw(Canvas(bitmap))
+                            val filename = if (suffix == "advanced") "$name-font-1.3.png"
+                                else "$name-$suffix-font-1.3.png"
+                            val screenshot = File(directory, filename)
+                            screenshot.outputStream().use { output ->
+                                assertTrue("PNG encoder must write ${screenshot.name}",
+                                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+                            }
+                        } finally {
+                            bitmap.recycle()
                         }
-                    } finally {
-                        bitmap.recycle()
+                    }
+
+                    capture("advanced") { screen ->
+                        ReflectionHelpers.setField(screen, "page", "settings")
+                        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+                        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+                            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.ADVANCED))
+                    }
+                    capture("home") { screen ->
+                        ReflectionHelpers.setField(screen, "page", "home")
+                        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+                    }
+                    capture("connection") { screen ->
+                        ReflectionHelpers.setField(screen, "page", "settings")
+                        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+                        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+                            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.CONNECTION))
                     }
                 } finally {
                     activity.finish()

@@ -815,6 +815,137 @@ class AdaptiveSettingsUiTest {
         }
     }
 
+    @Test fun ts7HidesWiredAndHeadUnitSpecificEntriesFromPagesAndSearch() {
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.WIFI_P2P, ts7 = false)
+        AirPlayPersistence.saveClusterMapEnabled(context, true)
+        AirPlayPersistence.saveCenterMapOverlay(context, true)
+        AirPlayPersistence.saveClusterMapEnabled(context, true)
+        AirPlayPersistence.saveCenterMapOverlay(context, true)
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsTs7Override", true)
+        ReflectionHelpers.setField(screen, "page", "home")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        var visible = texts(screen).map { it.text.toString() }
+        assertFalse(screen.getString(R.string.connect_with_usb) in visible)
+        assertFalse(screen.getString(R.string.plug_your_iphone_into_a_usb_data_port_allow_carplay_when_y) in visible)
+
+        ReflectionHelpers.setField(screen, "page", "settings")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        visible = texts(screen).map { it.text.toString() }
+        assertFalse(screen.getString(R.string.setup_guide) in visible)
+        assertFalse(screen.getString(R.string.setup_guide_description) in visible)
+        assertTrue(screen.getString(R.string.settings_connection_summary_wireless) in visible)
+        assertFalse(screen.getString(R.string.settings_connection_summary) in visible)
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.CONNECTION))
+        visible = texts(screen).map { it.text.toString() }
+        listOf(
+            R.string.settings_usb_connection,
+            R.string.settings_usb_charging,
+            R.string.usb_auto_confirm_title,
+            R.string.usb_auto_confirm_subtitle,
+            R.string.boot_start_repair,
+            R.string.boot_start_repair_desc,
+            R.string.default_connection_usb,
+        ).forEach { hidden -> assertFalse(screen.getString(hidden), screen.getString(hidden) in visible) }
+        assertTrue(screen.getString(R.string.settings_connection_summary_wireless) in visible)
+        assertFalse(screen.getString(R.string.settings_connection_summary) in visible)
+        assertTrue(visible.any { it.startsWith(screen.getString(R.string.default_connection_mode)) &&
+            it.endsWith(screen.getString(R.string.default_connection_wireless)) })
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openConnectionSetupFromSettings")
+        visible = texts(screen).map { it.text.toString() }
+        listOf(
+            R.string.prefer_a_cable,
+            R.string.connect_with_usb,
+            R.string.wifi_direct,
+            R.string.settings_car_hotspot_config_title,
+            R.string.settings_car_hotspot_config_unsupported,
+        ).forEach { hidden -> assertFalse(screen.getString(hidden), screen.getString(hidden) in visible) }
+        assertTrue(visible.any { it.contains(screen.getString(R.string.settings_built_in_car_hotspot_recommended)) })
+        assertTrue(screen.getString(R.string.hotspot_setup) in visible)
+        assertTrue(screen.getString(R.string.open_car_hotspot_settings) in visible)
+
+        ReflectionHelpers.setField(screen, "page", "settings")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.DISPLAY))
+        visible = texts(screen).map { it.text.toString() }
+        assertFalse(screen.getString(R.string.picture_adjustments) in visible)
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.AUDIO))
+        visible = texts(screen).map { it.text.toString() }
+        assertFalse(visible.any { it.startsWith(screen.getString(R.string.settings_music_buffer_wired) + " ·") })
+        assertTrue(visible.any { it.startsWith(screen.getString(R.string.settings_music_buffer_wireless) + " ·") })
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.VEHICLE))
+        visible = texts(screen).map { it.text.toString() }
+        listOf(R.string.wheel_joystick, R.string.wheel_map_zoom,
+            R.string.wheel_siri_long_press_only).forEach { hidden ->
+            assertFalse(screen.getString(hidden), screen.getString(hidden) in visible)
+        }
+        assertTrue(screen.getString(R.string.wheel_media_play_pause) in visible)
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.NAVIGATION))
+        visible = texts(screen).map { it.text.toString() }
+        assertFalse(screen.getString(R.string.settings_byd_navigation_unavailable) in visible)
+        assertFalse(visible.any { it.contains("BYD", ignoreCase = true) || it.contains("DiLink", ignoreCase = true) })
+
+        val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
+        val indexedTitles = index.map { ReflectionHelpers.getField<String>(it, "title") }
+        listOf(
+            R.string.setup_guide,
+            R.string.connect_with_usb,
+            R.string.settings_usb_connection,
+            R.string.settings_usb_charging,
+            R.string.usb_auto_confirm_title,
+            R.string.boot_start_repair,
+            R.string.picture_adjustments,
+            R.string.settings_music_buffer_wired,
+            R.string.wheel_joystick,
+            R.string.wheel_map_zoom,
+            R.string.wheel_siri_long_press_only,
+            R.string.settings_byd_navigation_unavailable,
+        ).forEach { hidden -> assertFalse(screen.getString(hidden), screen.getString(hidden) in indexedTitles) }
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "promptEnableUsbAutoConfirm")
+        assertNull(ShadowAlertDialog.getLatestAlertDialog())
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.ADVANCED))
+        visible = texts(screen).map { it.text.toString() }
+        assertEquals(screen.getString(R.string.settings_auto_apply_map_permissions),
+            ReflectionHelpers.callInstanceMethod<String>(screen, "autoApplyPermissionsLabel"))
+        if (!HomeScreenMonitor.hasAccess(screen)) {
+            assertTrue(screen.getString(R.string.settings_auto_apply_map_permissions) in visible)
+        }
+        assertFalse(screen.getString(R.string.btn_auto_apply_permissions) in visible)
+    }
+
+    @Test fun otherHeadUnitsKeepTheirWiredControls() {
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsTs7Override", false)
+        ReflectionHelpers.setField(screen, "page", "home")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        assertTrue(texts(screen).any { it.text == screen.getString(R.string.connect_with_usb) })
+
+        ReflectionHelpers.setField(screen, "page", "settings")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.CONNECTION))
+        var visible = texts(screen).map { it.text.toString() }
+        assertTrue(screen.getString(R.string.settings_usb_connection) in visible)
+        assertTrue(screen.getString(R.string.usb_auto_confirm_title) in visible)
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openConnectionSetupFromSettings")
+        visible = texts(screen).map { it.text.toString() }
+        assertTrue(screen.getString(R.string.prefer_a_cable) in visible)
+        assertTrue(screen.getString(R.string.connect_with_usb) in visible)
+    }
+
     @Test fun navigationAttenuationSliderSavesAndUpdatesActiveAudioWithoutReconnect() {
         val screen = openSettings()
         val session = mock(CarPlayController::class.java)

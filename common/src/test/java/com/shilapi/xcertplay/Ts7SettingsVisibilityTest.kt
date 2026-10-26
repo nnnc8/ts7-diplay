@@ -3,6 +3,8 @@ package com.shilapi.xcertplay
 import android.content.Context
 import com.shilapi.xcertplay.airplay.CarPlayClusterDisplay
 import com.shilapi.xcertplay.airplay.SafeAreaRect
+import com.shilapi.xcertplay.network.WifiP2pChannels
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -21,6 +23,8 @@ class Ts7SettingsVisibilityTest {
 
     @Before fun clearPreferences() {
         context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("diplay_wheel_map_zoom", Context.MODE_PRIVATE).edit().clear().commit()
     }
 
     @Test fun ts7KeepsTheFloatingMapSectionsAndOmitsBydOnlySections() {
@@ -45,6 +49,57 @@ class Ts7SettingsVisibilityTest {
         assertFalse(SettingsCategory.VEHICLE in categories)
         assertTrue(SettingsCategory.OVERVIEW in categories)
         assertTrue(SettingsCategory.ABOUT in categories)
+    }
+
+    @Test fun ts7HidesTheUsbSettingsSectionWhileKeepingWirelessConnectionControls() {
+        val visible = SettingsInformationArchitecture.visibleSections(SettingsCategory.CONNECTION, ts7 = true)
+        assertFalse(SettingsSection.USB_CONNECTION in visible)
+        assertTrue(SettingsSection.CONNECTION_SETUP in visible)
+        assertTrue(SettingsSection.AUTOMATIC_CONNECTION in visible)
+        assertTrue(SettingsSection.PERMISSIONS_AND_HELP in visible)
+    }
+
+    @Test fun ts7ForcesTheDefaultConnectionModeToWireless() {
+        context.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit()
+            .putString("default_connection_mode", DefaultConnectionMode.USB.key).commit()
+
+        assertEquals(DefaultConnectionMode.WIRELESS, DiPlayPreferences.defaultConnectionMode(context, ts7 = true))
+        assertEquals(listOf(DefaultConnectionMode.WIRELESS), DefaultConnectionMode.available(ts7 = true))
+        assertEquals(DefaultConnectionMode.entries, DefaultConnectionMode.available(ts7 = false))
+
+        DiPlayPreferences.saveDefaultConnectionMode(context, DefaultConnectionMode.USB, ts7 = true)
+        assertEquals(DefaultConnectionMode.WIRELESS.key,
+            context.getSharedPreferences("diplay", Context.MODE_PRIVATE).getString("default_connection_mode", null))
+        context.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit()
+            .putString("default_connection_mode", DefaultConnectionMode.USB.key).commit()
+        assertEquals(DefaultConnectionMode.USB, DiPlayPreferences.defaultConnectionMode(context, ts7 = false))
+    }
+
+    @Test fun ts7UsesManualHotspotInsteadOfSavedWifiDirectAndIgnoresItsSettings() {
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.WIFI_P2P, ts7 = false)
+        assertEquals(WirelessHotspotMode.MANUAL, AirPlayPersistence.loadWirelessHotspotMode(context, ts7 = true))
+        assertEquals(WirelessHotspotMode.MANUAL, AirPlayPersistence.loadWirelessHotspotMode(context, ts7 = false))
+
+        val channel = WifiP2pChannels.channels.first()
+        AirPlayPersistence.saveWifiP2pPreferredChannel(context, channel)
+        AirPlayPersistence.saveWifiDirectScanPause(context, true)
+        assertEquals(WifiP2pChannels.AUTO, AirPlayPersistence.loadWifiP2pPreferredChannel(context, ts7 = true))
+        assertFalse(AirPlayPersistence.loadWifiDirectScanPause(context, ts7 = true))
+        assertEquals(channel, AirPlayPersistence.loadWifiP2pPreferredChannel(context, ts7 = false))
+        assertTrue(AirPlayPersistence.loadWifiDirectScanPause(context, ts7 = false))
+    }
+
+    @Test fun ts7IgnoresSavedBydWheelZoomAndJoystickSettings() {
+        WheelZoomSettings.setEnabled(context, true)
+        WheelZoomSettings.setJoystick(context, true)
+        WheelZoomSettings.setSiriLongPressOnly(context, true)
+
+        assertFalse(WheelZoomSettings.enabled(context, ts7 = true))
+        assertFalse(WheelZoomSettings.joystick(context, ts7 = true))
+        assertFalse(WheelZoomSettings.siriLongPressOnly(context, ts7 = true))
+        assertTrue(WheelZoomSettings.enabled(context, ts7 = false))
+        assertTrue(WheelZoomSettings.joystick(context, ts7 = false))
+        assertTrue(WheelZoomSettings.siriLongPressOnly(context, ts7 = false))
     }
 
     @Test fun ts7IgnoresSavedInstrumentAndMapEmbedValuesButKeepsTheFloatingCard() {

@@ -140,6 +140,35 @@ class UsbPermissionSetupTest {
         assertEquals("other.package/.Service:$target", runShell(script).trim())
     }
 
+    @Test fun ts7MapPermissionSetupRequestsUsageAndOverlayWithoutUsbAccessibility() {
+        val requested = UsbPermissionSetup.permissionsFor(ts7 = true)
+        assertEquals(setOf(UsbPermissionSetup.Permission.USAGE, UsbPermissionSetup.Permission.OVERLAY), requested)
+        val manual = UsbPermissionSetup.manualCommand(context.packageName, requested)
+        assertFalse(manual.contains("enabled_accessibility_services"))
+        assertTrue(manual.contains("GET_USAGE_STATS allow"))
+        assertTrue(manual.contains("SYSTEM_ALERT_WINDOW allow"))
+
+        val granted = mutableSetOf<UsbPermissionSetup.Permission>()
+        val client = FakeClient().apply {
+            onCommand = { command ->
+                when {
+                    command.contains("GET_USAGE_STATS allow") -> granted += UsbPermissionSetup.Permission.USAGE
+                    command.contains("SYSTEM_ALERT_WINDOW allow") -> granted += UsbPermissionSetup.Permission.OVERLAY
+                }
+            }
+        }
+        val result = UsbPermissionSetup.Operation(
+            context,
+            { client },
+            permissions = requested,
+            granted = { it in granted },
+        ).run()
+        assertTrue(result.complete)
+        assertEquals(requested, result.verified.keys)
+        assertEquals(2, client.commands.size)
+        assertFalse(client.commands.any { it.contains("enabled_accessibility_services") })
+    }
+
     @Test fun progressCancelUnblocksWorkerAndSuppressesLateDialogs() = cancelledUiAttempt {
         it.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
     }
@@ -158,7 +187,7 @@ class UsbPermissionSetupTest {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         val client = FakeClient().apply { block = true }
-        activity.usbPermissionOperationFactory = { operation(client) }
+        activity.usbPermissionOperationFactory = { _, _ -> operation(client) }
         DiPlayActivity::class.java.getDeclaredMethod("autoApplyPermissions").apply { isAccessible = true }.invoke(activity)
         val progress = ShadowAlertDialog.getLatestAlertDialog()
         try {
@@ -177,7 +206,7 @@ class UsbPermissionSetupTest {
     }
 
     private fun operation(client: FakeClient, granted: (UsbPermissionSetup.Permission) -> Boolean = { false }) =
-        UsbPermissionSetup.Operation(context, { client }, granted)
+        UsbPermissionSetup.Operation(context, { client }, granted = granted)
 
     private fun shellFixture(initial: String, readFails: Boolean = false): String =
         """current='$initial'; saved=UNCHANGED;
