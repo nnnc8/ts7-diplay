@@ -558,7 +558,10 @@ object AirPlayPersistence {
     }
 
     fun loadBtSuspendDuringCarplay(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        loadBtSuspendDuringCarplay(context, Ts7HeadUnit.detected)
+
+    internal fun loadBtSuspendDuringCarplay(context: Context, ts7: Boolean): Boolean =
+        !ts7 && context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_BT_SUSPEND_DURING_CARPLAY, false)
 
     fun loadHideBydCallPopup(context: Context): Boolean =

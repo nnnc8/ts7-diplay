@@ -38,7 +38,9 @@ import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.VideoInCar
 import com.shilapi.xcertplay.airplay.VideoPlaybackDelivery
 import com.shilapi.xcertplay.hud.BydBluetoothSuspend
+import com.shilapi.xcertplay.hud.BydCarPlayCall
 import com.shilapi.xcertplay.hud.BydNavigationOutputs
+import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.MfiAuthenticationClient
@@ -46,6 +48,7 @@ import com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient
 import com.shilapi.xcertplay.media.Ts7MusicPlaybackSignals
 import com.shilapi.xcertplay.network.CarPlayBonjour
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import com.shilapi.xcertplay.network.diagnosticSummary
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.network.LocalOnlyHotspotManager
@@ -180,8 +183,10 @@ class CarPlayController(
             "A location provider is required when location reporting is enabled"
         }
         WifiScanPause.restoreIfNeeded(context.applicationContext)
-        BydNavigationOutputs.start(context.applicationContext)
-        BydNavigationOutputs.setClusterStreamControl(::applyClusterUi)
+        if (!Ts7HeadUnit.detected) {
+            BydNavigationOutputs.start(context.applicationContext)
+            BydNavigationOutputs.setClusterStreamControl(::applyClusterUi)
+        }
     }
 
     private enum class Phase { IDLE, MFI, WIRELESS, IPHONE, REENUMERATION, DATAPATHS, CONTROL }
@@ -353,8 +358,10 @@ class CarPlayController(
             if (currentCornerMask?.session !== session) currentCornerMask = null
             val replacement = activeSession !== session
             if (replacement) {
-                BydNavigationOutputs.start(appContext)
-                BydNavigationOutputs.carPlaySessionStarted()
+                if (!Ts7HeadUnit.detected) {
+                    BydNavigationOutputs.start(appContext)
+                    BydNavigationOutputs.carPlaySessionStarted()
+                }
                 com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(true)
                 // The gear may have changed since /info.
                 if (videoListener != null) {
@@ -364,7 +371,7 @@ class CarPlayController(
             }
             activeSession = session
             val btPrefs = appContext.getSharedPreferences("xcertplay_airplay", android.content.Context.MODE_PRIVATE)
-            if (btPrefs.getBoolean("bt_suspend_during_carplay", false)) {
+            if (!Ts7HeadUnit.detected && btPrefs.getBoolean("bt_suspend_during_carplay", false)) {
                 // close() marks [closed], and a closing session marks itself before onSessionEnded
                 // clears it, ahead of each resume; the pause checks all three under resume's lock.
                 BydBluetoothSuspend.suspend(appContext, this@CarPlayController, btSuspendDelayMs(btPrefs),
@@ -385,8 +392,12 @@ class CarPlayController(
             if (activeSession === session) {
                 activeSession = null
                 synchronized(albumReplayLock) { initialArtworkReplay = null }
-                BydNavigationOutputs.endNow(preserveTurnOverlay = !closed && config.transport == CarPlayTransport.WIRELESS)
-                BydBluetoothSuspend.resume(appContext, this@CarPlayController) { debugLog(it) }
+                if (!Ts7HeadUnit.detected) {
+                    BydNavigationOutputs.endNow(preserveTurnOverlay = !closed && config.transport == CarPlayTransport.WIRELESS)
+                    BydBluetoothSuspend.resume(appContext, this@CarPlayController) { debugLog(it) }
+                } else if (BydOutputSettings.phoneAudioRoute(appContext)) {
+                    BydCarPlayCall.end()
+                }
                 com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(false)
                 videoListener?.onVideoSessionEnded()
                 synchronized(playbackStatus) {
@@ -681,16 +692,22 @@ class CarPlayController(
         }
         firstTcpWatchdog?.terminate()
         wiredStartWatchdog?.terminate()
-        BydBluetoothSuspend.resume(appContext, this) { debugLog(it) }
+        if (!Ts7HeadUnit.detected) {
+            BydBluetoothSuspend.resume(appContext, this) { debugLog(it) }
+        }
         startupTimer.shutdownNow()
         (hotspot as? ManualHotspotManager)?.close()
         val teardownStarted = System.nanoTime()
         connectionDiagnostic(teardownBeginDiagnostic(config.transport.toString(), reason))
         videoGate?.close()
-        BydNavigationOutputs.endNow()
-        logCallPhase()
+        if (!Ts7HeadUnit.detected) {
+            BydNavigationOutputs.endNow()
+            logCallPhase()
+            BydNavigationOutputs.clearClusterStreamControl(::applyClusterUi)
+        } else if (BydOutputSettings.phoneAudioRoute(appContext)) {
+            BydCarPlayCall.end()
+        }
         com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(false)
-        BydNavigationOutputs.clearClusterStreamControl(::applyClusterUi)
         closeReceivers()
         availabilityPollGeneration.incrementAndGet()
         permissionPollGeneration += 1
@@ -840,8 +857,16 @@ class CarPlayController(
 
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
     private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
-        BydNavigationOutputs.onFrame(frame)
-        if (frame.messageId == com.shilapi.xcertplay.hud.CarPlayCallState.CALL_STATE_UPDATE) logCallPhase()
+        if (Ts7HeadUnit.detected) {
+            // This optional audio route is independent of BYD's vehicle call display.
+            if (frame.messageId == com.shilapi.xcertplay.hud.CarPlayCallState.CALL_STATE_UPDATE &&
+                BydOutputSettings.phoneAudioRoute(appContext)) {
+                BydCarPlayCall.onFrame(frame)
+            }
+        } else {
+            BydNavigationOutputs.onFrame(frame)
+            if (frame.messageId == com.shilapi.xcertplay.hud.CarPlayCallState.CALL_STATE_UPDATE) logCallPhase()
+        }
         com.shilapi.xcertplay.glance.CarPlayGlance.onFrame(frame)
         synchronized(playbackStatus) {
             val previousPlaying = playbackStatus.playing

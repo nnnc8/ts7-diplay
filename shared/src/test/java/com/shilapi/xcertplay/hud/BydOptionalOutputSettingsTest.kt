@@ -28,6 +28,48 @@ class BydOptionalOutputSettingsTest {
         assertEquals(BydOemClusterHold.COMPONENT, BydOutputSettings.oemClusterHold(app))
     }
 
+    @Test fun ts7TreatsSavedBydWorkSettingsAsOffButKeepsGenericPhoneAudioRouting() {
+        val app = RuntimeEnvironment.getApplication()
+        val prefs = app.getSharedPreferences("diplay_byd_outputs", Context.MODE_PRIVATE)
+        prefs.edit().clear()
+            .putBoolean("navigation_enabled", true)
+            .putBoolean("cluster_stream_pause", true)
+            .putBoolean("battery_to_iphone", true)
+            .putBoolean("wheel_speed_to_iphone", true)
+            .putBoolean("video_while_parked", true)
+            .putBoolean("cluster_song", true)
+            .putBoolean("cluster_song_on_change", true)
+            .putBoolean("hud_song", true)
+            .putBoolean("carplay_calls", true)
+            .putBoolean("carplay_call_controls_experimental", true)
+            .putBoolean("fce_cluster_guidance_experimental", true)
+            .putBoolean("legacy_vehicle_probe", true)
+            .putString("oem_cluster_hold", BydOemClusterHold.COMPONENT.name)
+            .putBoolean("phone_audio_route_experimental", true)
+            .commit()
+
+        assertFalse(BydOutputSettings.enabled(app, ts7 = true))
+        assertFalse(BydOutputSettings.clusterStreamPause(app, ts7 = true))
+        assertFalse(BydOutputSettings.batteryToIphone(app, ts7 = true))
+        assertFalse(BydOutputSettings.wheelSpeedToIphone(app, ts7 = true))
+        assertFalse(BydOutputSettings.videoWhileParked(app, ts7 = true))
+        assertFalse(BydOutputSettings.clusterSong(app, ts7 = true))
+        assertFalse(BydOutputSettings.clusterSongOnChange(app, ts7 = true))
+        assertFalse(BydOutputSettings.hudSong(app, ts7 = true))
+        assertFalse(BydOutputSettings.carPlayCalls(app, ts7 = true))
+        assertFalse(BydOutputSettings.carPlayCallControls(app, ts7 = true))
+        assertFalse(BydOutputSettings.fceCluster(app, ts7 = true))
+        assertFalse(BydOutputSettings.legacyVehicleProbe(app, ts7 = true))
+        assertEquals(BydOemClusterHold.OFF, BydOutputSettings.oemClusterHold(app, ts7 = true))
+        assertFalse(BydOutputSettings.shouldStartBydNavigationOutputs(ts7 = true))
+        assertTrue(BydOutputSettings.phoneAudioRoute(app))
+
+        assertTrue(BydOutputSettings.enabled(app, ts7 = false))
+        assertTrue(BydOutputSettings.clusterSong(app, ts7 = false))
+        assertTrue(BydOutputSettings.carPlayCalls(app, ts7 = false))
+        assertTrue(BydOutputSettings.shouldStartBydNavigationOutputs(ts7 = false))
+    }
+
     @Test fun installedStockReceiverDoesNotEnableUnverifiedDilink4Hud() {
         val app = RuntimeEnvironment.getApplication()
         val knownApp = object : ContextWrapper(app) {

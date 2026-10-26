@@ -86,6 +86,13 @@ class BydVehicleDataSettingsTest {
         assertTrue(switches().any { it.contentDescription == activity.getString(R.string.video_while_parked) })
     }
 
+    @Test fun ts7IgnoresSavedVehicleBluetoothSuspension() {
+        AirPlayPersistence.saveBtSuspendDuringCarplay(context, true)
+
+        assertFalse(AirPlayPersistence.loadBtSuspendDuringCarplay(context, ts7 = true))
+        assertTrue(AirPlayPersistence.loadBtSuspendDuringCarplay(context, ts7 = false))
+    }
+
     @Test fun aTappedAdbCheckShowsItsResult() {
         // #724: on a head unit without network ADB only the status line changed, so the button seemed dead.
         openSettings()

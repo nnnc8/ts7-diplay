@@ -2,15 +2,24 @@ package com.shilapi.xcertplay.hud
 
 import android.content.Context
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 
 /** Nonblocking boundary between phone control messages and vendor services. */
 object BydNavigationOutputs {
     /** Recover a journaled interrupted output when the app opens, even before a phone reconnects. */
     fun onAppOpened(context: Context) {
+        // Recover any system state left by an older build before the head unit was identified.
+        val startBydOutputs = BydOutputSettings.shouldStartBydNavigationOutputs(Ts7HeadUnit.detected)
         BydBluetoothSuspend.onAppOpened(context)
-        BydOemClusterNavi.restoreIfNeeded(context)
-        BydDiLink3ClusterOutput.restoreIfNeeded(context)
+        if (startBydOutputs) {
+            BydOemClusterNavi.restoreIfNeeded(context)
+            BydDiLink3ClusterOutput.restoreIfNeeded(context)
+        }
         com.shilapi.xcertplay.network.WifiScanPause.restoreIfNeeded(context)
+        if (!startBydOutputs) {
+            // Recovery above is one-shot. TS7 must not initialize BYD services or readers.
+            return
+        }
         if (BydStandaloneHudOutput.available(context)) start(context)
         // Read the battery early, so a reading is ready when CarPlay identifies (see batteryStatus).
         if (BydOutputSettings.batteryToIphoneActive(context)) BydBatteryStatus.start(context)
@@ -34,23 +43,34 @@ object BydNavigationOutputs {
 
     /** The host reports whether its CarPlay map window is on the cluster (see [BydClusterMapPause]). */
     fun setClusterMapShown(shown: Boolean) {
+        if (Ts7HeadUnit.detected) return
         BydClusterMapPause.clusterMapShown = shown
         BydClusterBridge.setMapShown(shown)
     }
 
     /** The running CarPlay session: told every second whether the cluster currently shows the map. */
-    fun setClusterStreamControl(control: (Boolean) -> Unit) { BydClusterMapPause.streamControl = control }
+    fun setClusterStreamControl(control: (Boolean) -> Unit) {
+        if (!Ts7HeadUnit.detected) BydClusterMapPause.streamControl = control
+    }
 
     /** Latest ADB wheel-menu navi mode, or null when it cannot be read. */
-    fun clusterNaviMode(): BydClusterNaviMode? = BydClusterMapPause.lastNaviMode
+    fun clusterNaviMode(): BydClusterNaviMode? {
+        if (Ts7HeadUnit.detected) return null
+        return BydClusterMapPause.lastNaviMode
+    }
 
     /** Called whenever the ADB navi mode changes. Pass null to stop following. */
     fun setClusterNaviModeListener(listener: ((BydClusterNaviMode?) -> Unit)?) {
+        if (Ts7HeadUnit.detected) {
+            listener?.invoke(null)
+            return
+        }
         BydClusterMapPause.onNaviMode = listener
         listener?.invoke(BydClusterMapPause.lastNaviMode)
     }
 
     fun clearClusterStreamControl(control: (Boolean) -> Unit) {
+        if (Ts7HeadUnit.detected) return
         if (BydClusterMapPause.streamControl == control) BydClusterMapPause.streamControl = null
     }
 
@@ -68,6 +88,7 @@ object BydNavigationOutputs {
     fun parked(context: Context): Boolean? = BydParkedState.parked(context.applicationContext)
 
     fun start(context: Context) {
+        if (!BydOutputSettings.shouldStartBydNavigationOutputs(Ts7HeadUnit.detected)) return
         val app = context.applicationContext
         useStandalone = BydStandaloneHudOutput.available(app)
         if (useStandalone) standalone.start { BydStandaloneNavigationBridge.initialize(app) }
@@ -82,6 +103,7 @@ object BydNavigationOutputs {
     }
 
     internal fun onFrame(frame: Iap2Frame) {
+        if (Ts7HeadUnit.detected) return
         if (frame.messageId == ClusterSongState.NOW_PLAYING_UPDATE) {
             BydClusterSong.onFrame(frame)
             return
@@ -137,25 +159,39 @@ object BydNavigationOutputs {
     }
 
     /** The dashboard song setting changed; applies at once. */
-    fun clusterSongChanged(enabled: Boolean) = BydClusterSong.settingChanged(enabled)
+    fun clusterSongChanged(enabled: Boolean) {
+        if (!Ts7HeadUnit.detected) BydClusterSong.settingChanged(enabled)
+    }
 
     /** The CarPlay call setting changed; applies at once. */
-    fun carPlayCallsChanged(enabled: Boolean) = BydCarPlayCall.settingChanged(enabled)
+    fun carPlayCallsChanged(enabled: Boolean) {
+        if (!Ts7HeadUnit.detected) BydCarPlayCall.settingChanged(enabled)
+    }
 
     /** A CarPlay session became active; ready the call card so calls show without the watcher's start delay. */
-    fun carPlaySessionStarted() = BydCarPlayCall.sessionStarted()
+    fun carPlaySessionStarted() {
+        if (!Ts7HeadUnit.detected) BydCarPlayCall.sessionStarted()
+    }
 
     /** The iPhone's current call, for the steering wheel's call keys. */
-    fun carPlayCall(): CarPlayCallCard? = BydCarPlayCall.current()
+    fun carPlayCall(): CarPlayCallCard? {
+        if (Ts7HeadUnit.detected) return null
+        return BydCarPlayCall.current()
+    }
 
     /** The dashboard song's "only when it changes" setting changed; applies at once. */
-    fun clusterSongOnChangeChanged() = BydClusterSong.onChangeSettingChanged()
+    fun clusterSongOnChangeChanged() {
+        if (!Ts7HeadUnit.detected) BydClusterSong.onChangeSettingChanged()
+    }
 
     /** A short note where the song shows on the dashboard; needs the same ADB access as the song. */
-    fun dashboardNote(text: String, source: Int? = null) = BydClusterSong.note(text, source)
+    fun dashboardNote(text: String, source: Int? = null) {
+        if (!Ts7HeadUnit.detected) BydClusterSong.note(text, source)
+    }
 
     /** Best effort while alive; Android does not guarantee callbacks before force-stop. */
     fun endNow(preserveTurnOverlay: Boolean = false) {
+        if (Ts7HeadUnit.detected) return
         standalone.clear(); hud.clear(); cluster.clear(); fceCluster.clear(); BydClusterSong.end(); BydCarPlayCall.end()
         // Only a wireless session replacement retains the card. Explicit controller close
         // and wired disconnect still clear it immediately.

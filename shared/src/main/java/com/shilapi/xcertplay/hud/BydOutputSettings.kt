@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import com.shilapi.xcertplay.transport.EvChargingConnectors
 
 /**
@@ -29,18 +30,27 @@ object BydOutputSettings {
     const val DEFAULT_LOW_CHARGE_PERCENT = 20
     val lowChargePresets = listOf(10, 15, 20, 25, 30)
 
-    fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, true)
+    fun enabled(context: Context): Boolean = enabled(context, Ts7HeadUnit.detected)
+
+    internal fun enabled(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_ENABLED, true), ts7)
 
     fun setEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
 
     /** Ask the iPhone to stop drawing the cluster map while the cluster hides it (needs ADB over network). */
-    fun clusterStreamPause(context: Context): Boolean = prefs(context).getBoolean(KEY_CLUSTER_STREAM_PAUSE, false)
+    fun clusterStreamPause(context: Context): Boolean = clusterStreamPause(context, Ts7HeadUnit.detected)
+
+    internal fun clusterStreamPause(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_CLUSTER_STREAM_PAUSE, false), ts7)
 
     fun setClusterStreamPause(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CLUSTER_STREAM_PAUSE, enabled).apply()
 
     /** Tell the iPhone the car's charge and range (needs ADB over network); applies on the next connection. */
-    fun batteryToIphone(context: Context): Boolean = prefs(context).getBoolean(KEY_BATTERY_TO_IPHONE, false)
+    fun batteryToIphone(context: Context): Boolean = batteryToIphone(context, Ts7HeadUnit.detected)
+
+    internal fun batteryToIphone(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_BATTERY_TO_IPHONE, false), ts7)
 
     fun setBatteryToIphone(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_BATTERY_TO_IPHONE, enabled).commit()
@@ -61,7 +71,10 @@ object BydOutputSettings {
     }
 
     /** Send wheel speed and gear with the car's GPS (needs ADB over network); applies on the next connection. */
-    fun wheelSpeedToIphone(context: Context): Boolean = prefs(context).getBoolean(KEY_WHEEL_SPEED_TO_IPHONE, false)
+    fun wheelSpeedToIphone(context: Context): Boolean = wheelSpeedToIphone(context, Ts7HeadUnit.detected)
+
+    internal fun wheelSpeedToIphone(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_WHEEL_SPEED_TO_IPHONE, false), ts7)
 
     fun setWheelSpeedToIphone(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_WHEEL_SPEED_TO_IPHONE, enabled).commit()
@@ -70,27 +83,38 @@ object BydOutputSettings {
     fun wheelSpeedToIphoneActive(context: Context): Boolean =
         wheelSpeedToIphone(context) && supportedInSelectedMode(context) { it.motionSupported }
     /** Offer iOS 27 video in car, played only while the gear reads P (needs ADB over network). */
-    fun videoWhileParked(context: Context): Boolean = prefs(context).getBoolean(KEY_VIDEO_WHILE_PARKED, false)
+    fun videoWhileParked(context: Context): Boolean = videoWhileParked(context, Ts7HeadUnit.detected)
+
+    internal fun videoWhileParked(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_VIDEO_WHILE_PARKED, false), ts7)
 
     fun setVideoWhileParked(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_VIDEO_WHILE_PARKED, enabled).commit()
     }
 
     /** Show the CarPlay song in the dashboard's music card (needs ADB over network); applies at once. */
-    fun clusterSong(context: Context): Boolean = prefs(context).getBoolean(KEY_CLUSTER_SONG, false)
+    fun clusterSong(context: Context): Boolean = clusterSong(context, Ts7HeadUnit.detected)
+
+    internal fun clusterSong(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_CLUSTER_SONG, false), ts7)
 
     fun setClusterSong(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CLUSTER_SONG, enabled).apply()
 
     /** Show CarPlay calls on the dashboard and HUD like BYD's CarPlay app (needs ADB over network); applies at once. */
-    fun carPlayCalls(context: Context): Boolean = prefs(context).getBoolean(KEY_CARPLAY_CALLS, false)
+    fun carPlayCalls(context: Context): Boolean = carPlayCalls(context, Ts7HeadUnit.detected)
+
+    internal fun carPlayCalls(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_CARPLAY_CALLS, false), ts7)
 
     fun setCarPlayCalls(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CARPLAY_CALLS, enabled).apply()
 
     /** Unverified DiLink 3 call/voice/media key handling requires a separate explicit opt-in. */
-    fun carPlayCallControls(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_CARPLAY_CALL_CONTROLS, false)
+    fun carPlayCallControls(context: Context): Boolean = carPlayCallControls(context, Ts7HeadUnit.detected)
+
+    internal fun carPlayCallControls(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_CARPLAY_CALL_CONTROLS, false), ts7)
 
     fun setCarPlayCallControls(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CARPLAY_CALL_CONTROLS, enabled).apply()
@@ -111,7 +135,10 @@ object BydOutputSettings {
         prefs(context).edit().putBoolean(KEY_PHONE_AUDIO_ROUTE_APPS, enabled).apply()
 
     /** Show a new song on the dashboard for a few seconds only, then an empty card. */
-    fun clusterSongOnChange(context: Context): Boolean = prefs(context).getBoolean(KEY_CLUSTER_SONG_ON_CHANGE, false)
+    fun clusterSongOnChange(context: Context): Boolean = clusterSongOnChange(context, Ts7HeadUnit.detected)
+
+    internal fun clusterSongOnChange(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_CLUSTER_SONG_ON_CHANGE, false), ts7)
 
     fun setClusterSongOnChange(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CLUSTER_SONG_ON_CHANGE, enabled).apply()
@@ -123,7 +150,10 @@ object BydOutputSettings {
      * Use addresses saved by the legacy head-unit probe. Existing installations with a saved probe
      * migrate to this mode; a fresh installation stays on the default DiLink 5.0 path.
      */
-    fun legacyVehicleProbe(context: Context): Boolean {
+    fun legacyVehicleProbe(context: Context): Boolean = legacyVehicleProbe(context, Ts7HeadUnit.detected)
+
+    internal fun legacyVehicleProbe(context: Context, ts7: Boolean): Boolean {
+        if (ts7) return false
         val settings = prefs(context)
         return if (settings.contains(KEY_LEGACY_VEHICLE_PROBE)) {
             settings.getBoolean(KEY_LEGACY_VEHICLE_PROBE, false)
@@ -139,12 +169,18 @@ object BydOutputSettings {
     }
 
     /** Optional title/lyrics when navigation is absent; only the verified HUD output can send it. */
-    fun hudSong(context: Context): Boolean = prefs(context).getBoolean(KEY_HUD_SONG, false)
+    fun hudSong(context: Context): Boolean = hudSong(context, Ts7HeadUnit.detected)
+
+    internal fun hudSong(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_HUD_SONG, false), ts7)
     fun setHudSong(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_HUD_SONG, enabled).apply()
 
     /** OEM changes require an explicit selection; fresh installations leave the stock map alone. */
-    fun oemClusterHold(context: Context): BydOemClusterHold {
+    fun oemClusterHold(context: Context): BydOemClusterHold = oemClusterHold(context, Ts7HeadUnit.detected)
+
+    internal fun oemClusterHold(context: Context, ts7: Boolean): BydOemClusterHold {
+        if (ts7) return BydOemClusterHold.OFF
         val settings = prefs(context)
         BydOemClusterHold.fromName(settings.getString(KEY_OEM_CLUSTER_HOLD, null))?.let { return it }
         return if (settings.getBoolean("oem_cluster_freeze", false)) BydOemClusterHold.PACKAGE
@@ -175,7 +211,10 @@ object BydOutputSettings {
      * Opt-in for [FceClusterBridge]: it writes vendor vehicle properties whose meaning was confirmed on one
      * car only, and another head unit with the same service could read them differently.
      */
-    fun fceCluster(context: Context): Boolean = prefs(context).getBoolean(KEY_FCE_CLUSTER, false)
+    fun fceCluster(context: Context): Boolean = fceCluster(context, Ts7HeadUnit.detected)
+
+    internal fun fceCluster(context: Context, ts7: Boolean): Boolean =
+        effectiveBydFlag(prefs(context).getBoolean(KEY_FCE_CLUSTER, false), ts7)
 
     fun setFceCluster(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_FCE_CLUSTER, enabled).apply()
@@ -202,4 +241,8 @@ object BydOutputSettings {
     ): Boolean = !legacyVehicleProbe(context) || BydVehicleFieldStore.load(context)?.let(supported) == true
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    internal fun effectiveBydFlag(saved: Boolean, ts7: Boolean): Boolean = saved && !ts7
+
+    internal fun shouldStartBydNavigationOutputs(ts7: Boolean): Boolean = !ts7
 }
