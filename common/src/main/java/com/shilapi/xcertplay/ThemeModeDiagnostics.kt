@@ -2,6 +2,19 @@ package com.shilapi.xcertplay
 
 import android.content.res.Configuration
 
+/** How often the host re-reads the configuration as a safety net beside onConfigurationChanged. */
+internal const val CONFIGURATION_POLL_INTERVAL_MILLIS = 2_000L
+
+/**
+ * The poll only exists for firmware (e.g. BYD DiLink) that mutates resources.configuration without
+ * delivering onConfigurationChanged. The TS7 delivers the callback, so its weak CPU keeps just a
+ * slow safety net; the schedule night mode has its own minute tick in CarPlayNightModeController.
+ */
+internal const val TS7_CONFIGURATION_POLL_INTERVAL_MILLIS = 60_000L
+
+internal fun configurationPollIntervalMillis(ts7: Boolean): Long =
+    if (ts7) TS7_CONFIGURATION_POLL_INTERVAL_MILLIS else CONFIGURATION_POLL_INTERVAL_MILLIS
+
 /** Samples only Android's existing theme signal; never infers a theme from vehicle state. */
 internal class ThemeModeDiagnostics {
     enum class Source(val label: String, val force: Boolean = false) {

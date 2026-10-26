@@ -713,10 +713,12 @@ class CarPlayHostActivity : ComponentActivity() {
     }
     // Some head units (e.g. BYD DiLink) update resources.configuration for day/night
     // without delivering onConfigurationChanged, so poll while the activity is visible.
+    // The TS7 delivers the callback and only keeps a slow safety-net poll.
     private val pollConfiguration = object : Runnable {
         override fun run() {
             refreshConfiguration(source = ThemeModeDiagnostics.Source.POLL)
-            mainHandler.postDelayed(this, CONFIGURATION_POLL_INTERVAL_MILLIS)
+            mainHandler.postDelayed(this,
+                configurationPollIntervalMillis(com.shilapi.xcertplay.network.Ts7HeadUnit.detected))
         }
     }
     private val applyDisplaySize = Runnable {
@@ -6821,7 +6823,6 @@ class CarPlayHostActivity : ComponentActivity() {
         private const val CLUSTER_IDLE_RELEASE_MILLIS = 15_000L
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
-        const val CONFIGURATION_POLL_INTERVAL_MILLIS = 2_000L
         const val RECONNECT_DELAY_MILLIS = 2_000L
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
