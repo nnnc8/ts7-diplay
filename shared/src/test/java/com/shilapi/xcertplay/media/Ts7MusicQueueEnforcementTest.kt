@@ -116,6 +116,48 @@ class Ts7MusicQueueEnforcementTest {
         }
     }
 
+    @Test fun stalledTailExitsAfterThePlaybackHeadStopsAndReportsRemainingFrames() {
+        val fixture = createFixture(packetCount = 0, playbackStarted = true)
+        try {
+            val buffer = fixture.get("bufferProgress") as AudioBufferProgress
+            buffer.written(19_200)
+            fixture.set("streamEnded", AtomicBoolean(true))
+            fixture.set("finalTailFlushed", AtomicBoolean(true))
+
+            val start = 1_000_000_000L
+            fixture.invoke("finishEndedStreamIfDrained", start)
+            assertTrue(fixture.get("running") as Boolean)
+
+            fixture.invoke("finishEndedStreamIfDrained", start + 1_500_000_000L)
+            assertFalse(fixture.get("running") as Boolean)
+            assertTrue(fixture.reports.any {
+                it.contains("tail drain exit reason=playback-head-stalled") && it.contains("remainingFrames=4800")
+            })
+        } finally {
+            fixture.track.release()
+        }
+    }
+
+    @Test fun aMovingPlaybackHeadDrainsNormallyWithoutAnEarlyExitReport() {
+        val fixture = createFixture(packetCount = 0, playbackStarted = true)
+        try {
+            val buffer = fixture.get("bufferProgress") as AudioBufferProgress
+            buffer.written(19_200)
+            fixture.set("streamEnded", AtomicBoolean(true))
+            fixture.set("finalTailFlushed", AtomicBoolean(true))
+
+            val start = 2_000_000_000L
+            fixture.invoke("finishEndedStreamIfDrained", start)
+            TestTrack.playbackHeadPosition = 4_800
+            fixture.invoke("finishEndedStreamIfDrained", start + 500_000_000L)
+
+            assertFalse(fixture.get("running") as Boolean)
+            assertTrue(fixture.reports.none { it.contains("tail drain exit") })
+        } finally {
+            fixture.track.release()
+        }
+    }
+
     private fun createFixture(packetCount: Int, playbackStarted: Boolean): Fixture {
         TestTrack.reset()
         val plan = MediaAudioBuffer.plan(true, 48_000, 2, 4096, 500, ts7Music = true)
@@ -129,14 +171,15 @@ class Ts7MusicQueueEnforcementTest {
             .setBufferSizeInBytes(plan.trackBufferBytes)
             .build()
         val rendererType = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
+        val reports = ArrayList<String>()
         val renderer = rendererType.declaredConstructors.single { it.parameterCount == 14 }
             .apply { isAccessible = true }
             .newInstance(
                 AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, 96, "media"),
                 false, false, 0, 0, AudioFocusCoordinator(null, false, false),
-                0, 500, { _: String -> }, 0L, false, null, false, null,
+                0, 500, { line: String -> reports += line }, 0L, false, null, false, null,
             )
-        val fixture = Fixture(rendererType, renderer, track)
+        val fixture = Fixture(rendererType, renderer, track, reports)
         fixture.set("ts7Music", true)
         fixture.set("track", track)
         fixture.set("mappedChannel", AudioChannel.MEDIA)
@@ -165,6 +208,7 @@ class Ts7MusicQueueEnforcementTest {
         val rendererType: Class<*>,
         val renderer: Any,
         val track: AudioTrack,
+        val reports: MutableList<String>,
     ) {
         lateinit var queue: BlockingQueue<Any>
 
@@ -174,13 +218,14 @@ class Ts7MusicQueueEnforcementTest {
         fun get(name: String): Any? = rendererType.getDeclaredField(name)
             .apply { isAccessible = true }.get(renderer)
 
-        fun invoke(name: String) = rendererType.getDeclaredMethod(name)
-            .apply { isAccessible = true }.invoke(renderer)
+        fun invoke(name: String, vararg args: Any?): Any? = rendererType.declaredMethods
+            .single { it.name == name && it.parameterCount == args.size }
+            .apply { isAccessible = true }.invoke(renderer, *args)
     }
 
     @Implements(AudioTrack::class)
     class TestTrack {
-        @Implementation fun getPlaybackHeadPosition() = 0
+        @Implementation fun getPlaybackHeadPosition() = playbackHeadPosition
         @Implementation fun getUnderrunCount() = 0
         @Implementation fun getBufferSizeInFrames() = 115_200
         @Implementation fun play() { playCount++ }
@@ -191,7 +236,11 @@ class Ts7MusicQueueEnforcementTest {
 
         companion object {
             var playCount = 0
-            fun reset() { playCount = 0 }
+            var playbackHeadPosition = 0
+            fun reset() {
+                playCount = 0
+                playbackHeadPosition = 0
+            }
         }
     }
 }

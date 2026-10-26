@@ -1933,6 +1933,7 @@ private class AudioRenderer(
     private val streamEnded = AtomicBoolean(false)
     private val endingRequestedNs = AtomicLong(0L)
     private val finalTailFlushed = AtomicBoolean(false)
+    private val tailDrainWatch = AudioTailDrainWatch()
     private var writeAborted = false
     private var droppedForLatency = 0L
     private var totalQueuedMs = 0L
@@ -2206,6 +2207,9 @@ private class AudioRenderer(
             )
         }
         track = built
+        bufferProgress.reset(built.playbackHeadPosition)
+        totalWrittenFrames = 0L
+        tailDrainWatch.reset()
         if (mappedChannel == AudioChannel.PHONE) {
             val listener = AudioRouting.OnRoutingChangedListener { routing -> checkCallRoute(routing.routedDevice) }
             if (runCatching { built.addOnRoutingChangedListener(listener, Handler(Looper.getMainLooper())) }.isSuccess) {
@@ -2895,6 +2899,7 @@ private class AudioRenderer(
         latencyPolicy.reset()
         clockDiscontinuity.set(false)
         finalTailFlushed.set(false)
+        tailDrainWatch.reset()
         currentTrack?.let {
             bufferProgress.reset(it.playbackHeadPosition)
             underrunsAtPlaybackStart = it.underrunCount
@@ -2959,11 +2964,34 @@ private class AudioRenderer(
         }
     }
 
-    private fun finishEndedStreamIfDrained() {
-        if (!streamEnded.get() || !finalTailFlushed.get() || !queue.isEmpty()) return
-        val currentTrack = track ?: run { running = false; return }
-        val queuedBytes = bufferProgress.queuedBytes(currentTrack.playbackHeadPosition)
-        if (!playbackStarted || queuedBytes == 0L) running = false
+    private fun finishEndedStreamIfDrained(nowNs: Long = System.nanoTime()) {
+        if (!streamEnded.get()) {
+            tailDrainWatch.reset()
+            return
+        }
+        val currentTrack = track
+        val playbackHead = currentTrack?.playbackHeadPosition ?: 0
+        val queuedMillis = currentQueuedMillis(currentTrack)
+        val latestAudioActivityNs = maxOf(lastArrivalNs.get(), endingRequestedNs.get())
+        val noNewPackets = latestAudioActivityNs == 0L ||
+            (nowNs >= latestAudioActivityNs && nowNs - latestAudioActivityNs >= TAIL_NO_PACKET_IDLE_NS)
+        val drainReady = finalTailFlushed.get() && queue.isEmpty() && compressedQueueFrames() == 0L && noNewPackets
+        val exitReason = tailDrainWatch.exitReason(nowNs, queuedMillis, playbackHead, drainReady)
+        val queuedBytes = bufferProgress.queuedBytes(playbackHead)
+        val drainedNormally = drainReady && (!playbackStarted || queuedBytes == 0L)
+        if (drainedNormally) {
+            running = false
+            return
+        }
+        if (exitReason != null) {
+            val remainingFrames = queuedBytes / frameBytes + compressedQueueFrames()
+            val waitedMs = tailDrainWatch.waitedMillis(nowNs)
+            running = false
+            runCatching {
+                report("Audio: tail drain exit reason=${exitReason.reportValue} " +
+                    "waitedMs=$waitedMs remainingFrames=$remainingFrames")
+            }
+        }
     }
 
     // Persist counters even during packet starvation, and flush before disconnect releases the track.
@@ -3117,6 +3145,7 @@ private class AudioRenderer(
         const val REORDER_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         const val EXPLICIT_TAIL_WAIT_NS = 300_000_000L
+        const val TAIL_NO_PACKET_IDLE_NS = 1_500_000_000L
         const val EXPLICIT_TAIL_MIN_MILLIS = 100L
         const val NO_CLEAR_GENERATION = -1L
         const val PLAYBACK_STATE_UNKNOWN = -1

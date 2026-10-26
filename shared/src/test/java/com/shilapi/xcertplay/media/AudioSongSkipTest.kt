@@ -60,6 +60,8 @@ class AudioSongSkipTest {
             set("fadeApplied", true)
             set("bytesPerSecond", 48_000 * 4)
             set("totalWrittenFrames", 12_000L)
+            val bufferProgress = get("bufferProgress") as AudioBufferProgress
+            bufferProgress.written(19_200)
 
             val adaptive = Ts7MusicBuffer(48_000, 4, plan.trackBufferBytes, 500).also { it.rebuffer(1) }
             set("adaptiveBuffer", adaptive)
@@ -92,6 +94,9 @@ class AudioSongSkipTest {
             assertEquals(0, get("rebufferCount"))
             assertFalse(get("fadeApplied") as Boolean)
             assertEquals(0L, get("totalWrittenFrames"))
+            assertEquals(0L, bufferProgress.queuedBytes(0))
+            bufferProgress.written(400)
+            assertEquals(400L, bufferProgress.queuedBytes(0))
             assertEquals(1, SkipTrack.pauseCount)
             assertEquals(1, SkipTrack.flushCount)
             assertEquals(48_000, SkipTrack.lastPlaybackRate)

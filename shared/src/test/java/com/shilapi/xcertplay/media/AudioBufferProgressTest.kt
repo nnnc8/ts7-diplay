@@ -58,4 +58,15 @@ class AudioBufferProgressTest {
         assertEquals(40, buffer.queuedBytes(0))
         assertEquals(0, buffer.queuedBytes(20))
     }
+
+    @Test fun resetStartsANewPlaybackHeadGenerationAfterFlush() {
+        val buffer = AudioBufferProgress(4)
+        buffer.written(19_200)
+        assertEquals(19_200, buffer.queuedBytes(0))
+
+        buffer.reset(0)
+        assertEquals(0, buffer.queuedBytes(0))
+        buffer.written(400)
+        assertEquals(400, buffer.queuedBytes(0))
+    }
 }
