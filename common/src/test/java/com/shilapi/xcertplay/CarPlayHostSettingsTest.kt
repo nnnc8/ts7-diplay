@@ -200,6 +200,105 @@ class CarPlayHostSettingsTest {
         })
     }
 
+    @Test fun ts7SwipeMenuKeepsTheApprovedControlsAndHidesFixedDetails() {
+        setField("manufacturer", "Saved manufacturer")
+        setField("model", "Saved model")
+        setField("widthPhysicalMm", 275)
+        setField("physicalSizeBasis", AirPlayPhysicalSizeBasis.HEIGHT)
+        setField("safeAreaDrawOutside", true)
+        setField("mainDisplayDisableSafeArea", true)
+        setField("blackCornerRadiusDp", 24)
+        setField("autoStartOnBoot", true)
+        setField("locationReportingEnabled", true)
+        invoke("persistMenuSettings")
+
+        val menu = buildSettingsMenu(ts7 = true)
+        val text = views(menu).filterIsInstance<TextView>().map { it.text.toString() }
+        fun has(resource: Int) = activity.getString(resource) in text
+        assertFalse(views(menu).any { it.tag == "navigation" || it.tag == "advanced" })
+
+        assertTrue(has(R.string.wireless_carplay_2))
+        assertTrue(has(R.string.hotspot_status))
+        assertTrue(has(R.string.oem_label))
+        assertTrue(has(R.string.airplay_icon))
+        assertTrue(has(R.string.choose_image))
+        assertTrue(has(R.string.default_icon))
+        assertTrue(has(R.string.resolution))
+        assertTrue(has(R.string.frame_rate))
+        assertTrue(has(R.string.safe_area))
+        assertTrue(has(R.string.set))
+        assertTrue(has(R.string.reset))
+        assertTrue(has(R.string.fullscreen))
+        assertTrue(has(R.string.temporary_system_bars))
+        assertTrue(has(R.string.debug_logs))
+        assertTrue(has(R.string.save_and_reconnect))
+        assertTrue(has(R.string.language_app_language))
+        assertTrue(views(menu).filterIsInstance<Button>().any {
+            it.text == activity.getString(R.string.app_name) + " " + activity.getString(R.string.settings)
+        })
+        assertTrue(has(R.string.exit_application))
+        assertTrue(has(R.string.carplay_dock))
+        assertTrue(has(R.string.driving_side))
+
+        for (hidden in listOf(
+            R.string.mfi_certificate_signing_target,
+            R.string.auto_start_on_boot,
+            R.string.report_location_to_iphone,
+            R.string.manufacturer,
+            R.string.model,
+            R.string.physical_size_basis,
+            R.string.physical_length,
+            R.string.draw_outside_safe_area,
+            R.string.rect_fill_disable_safe_area,
+            R.string.black_corner_overlay,
+            R.string.advanced_audio_channel_mapping,
+        )) assertFalse("${activity.getString(hidden)} must be hidden on TS7", has(hidden))
+
+        val radioLabels = views(menu).filterIsInstance<RadioButton>().map { it.text.toString() }
+        assertFalse(activity.getString(R.string.wi_fi_p2p_5_ghz) in radioLabels)
+        assertFalse(views(menu).filterIsInstance<TextView>().any { it.text == "HEVC (H.265)" })
+        assertFalse(views(menu).filterIsInstance<Button>().any {
+            it.text == activity.getString(R.string.settings_gesture_fingers, 3)
+        })
+
+        assertEquals("Saved manufacturer", AirPlayPersistence.loadManufacturer(activity))
+        assertEquals("Saved model", AirPlayPersistence.loadModel(activity))
+        assertEquals(275, AirPlayPersistence.loadWidthPhysicalMm(activity))
+        assertEquals(AirPlayPhysicalSizeBasis.HEIGHT, AirPlayPersistence.loadPhysicalSizeBasis(activity))
+        assertTrue(AirPlayPersistence.loadSafeAreaDrawOutside(activity))
+        assertTrue(AirPlayPersistence.loadMainDisplayDisableSafeArea(activity))
+        assertEquals(24, AirPlayPersistence.loadBlackCornerRadiusDp(activity))
+        assertTrue(AirPlayPersistence.loadAutoStartOnBoot(activity))
+        assertTrue(AirPlayPersistence.loadLocationReportingEnabled(activity))
+
+        val regularMenu = buildSettingsMenu(ts7 = false)
+        val regularText = views(regularMenu).filterIsInstance<TextView>().map { it.text.toString() }
+        assertTrue(activity.getString(R.string.mfi_certificate_signing_target) in regularText)
+        assertTrue(activity.getString(R.string.manufacturer) in regularText)
+        assertTrue(activity.getString(R.string.physical_size_basis) in regularText)
+        assertTrue(activity.getString(R.string.draw_outside_safe_area) in regularText)
+        assertTrue(views(regularMenu).filterIsInstance<RadioButton>().any {
+            it.text == activity.getString(R.string.wi_fi_p2p_5_ghz)
+        })
+    }
+
+    @Test
+    @Config(sdk = [28])
+    fun android9CompatibilityNoteMovesToDiagnosticsForTs7Only() {
+        fun page(menu: View, key: String): View = views(menu).single { it.tag == key }
+        fun containsNote(page: View): Boolean = views(page).filterIsInstance<TextView>().any {
+            it.text == activity.getString(R.string.settings_android9_compat)
+        }
+
+        val ts7 = buildSettingsMenu(ts7 = true)
+        assertTrue(containsNote(page(ts7, "diagnostics")))
+        assertFalse(views(ts7).any { it.tag == "advanced" })
+
+        val regular = buildSettingsMenu(ts7 = false)
+        assertTrue(containsNote(page(regular, "advanced")))
+        assertFalse(containsNote(page(regular, "diagnostics")))
+    }
+
     @Test
     @Config(qualifiers = "en-w320dp-h480dp-xhdpi")
     fun narrowHighDensityMenuKeepsCategoryAndActionsInThePanel() {
@@ -256,9 +355,19 @@ class CarPlayHostSettingsTest {
     fun compactLargeFontSwipeMenuScreenshot() = checkSwipeMenuScreenshot("upstream-swipe-compact-large-font.png", 600, 720)
 
     @Test
+    @Config(qualifiers = "en-w600dp-h720dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun compactLargeFontTs7SwipeMenuScreenshot() = checkSwipeMenuScreenshot("ts7-swipe-compact-large-font.png", 600, 720)
+
+    @Test
     @Config(qualifiers = "en-w1920dp-h1080dp-mdpi")
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun fullLargeFontSwipeMenuScreenshot() = checkSwipeMenuScreenshot("upstream-swipe-full-large-font.png", 1920, 1080)
+
+    @Test
+    @Config(qualifiers = "en-w1920dp-h1080dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun fullLargeFontTs7SwipeMenuScreenshot() = checkSwipeMenuScreenshot("ts7-swipe-full-large-font.png", 1920, 1080)
 
     @Test
     @Config(qualifiers = "en-w600dp-h720dp-mdpi")
@@ -269,6 +378,11 @@ class CarPlayHostSettingsTest {
     @Config(qualifiers = "ar-rSA-w600dp-h720dp-mdpi")
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun arabicLargeFontSwipeMenuScreenshot() = checkSwipeMenuScreenshot("upstream-swipe-arabic-large-font.png", 600, 720)
+
+    @Test
+    @Config(qualifiers = "ar-rSA-w600dp-h720dp-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun arabicLargeFontTs7SwipeMenuScreenshot() = checkSwipeMenuScreenshot("ts7-swipe-arabic-large-font.png", 600, 720)
 
     @Test
     @Config(qualifiers = "en-w600dp-h720dp-mdpi")
@@ -945,9 +1059,13 @@ class CarPlayHostSettingsTest {
             AirPlayPersistence.saveAppAppearance(activity, AppAppearance.LIGHT)
             invoke("refreshAppAppearance")
         }
-        if (name.contains("grouped")) setField("settingsMenuCategoryKey", "display")
-        invoke("openSettingsMenu")
-        val root = menu()
+        if (name.contains("grouped") || name.startsWith("ts7-")) setField("settingsMenuCategoryKey", "display")
+        val root = if (name.startsWith("ts7-")) {
+            buildSettingsMenu(ts7 = true).also { setField("settingsMenu", it) }
+        } else {
+            invoke("openSettingsMenu")
+            menu()
+        }
         repeat(3) {
             root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
@@ -1004,6 +1122,10 @@ class CarPlayHostSettingsTest {
     }
 
     private fun menu() = field("settingsMenu") as View
+    private fun buildSettingsMenu(ts7: Boolean): View = activity.javaClass
+        .getDeclaredMethod("buildSettingsMenu", Boolean::class.javaPrimitiveType)
+        .apply { isAccessible = true }
+        .invoke(activity, ts7) as View
     private fun saveButton() = views(menu()).filterIsInstance<Button>()
         .single { it.text == activity.getString(R.string.save_and_reconnect) }
     private fun resolutionSlider() = views(menu()).filterIsInstance<SeekBar>()

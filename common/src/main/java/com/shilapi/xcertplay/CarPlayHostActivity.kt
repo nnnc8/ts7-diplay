@@ -2829,7 +2829,9 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun buildSettingsMenu(): View {
+    private fun buildSettingsMenu(): View = buildSettingsMenu(com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
+
+    private fun buildSettingsMenu(ts7: Boolean): View {
         val overlay = object : FrameLayout(this) {
             var fitNavigation: ((Int) -> Unit)? = null
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -2854,6 +2856,7 @@ class CarPlayHostActivity : ComponentActivity() {
             clipToOutline = true
             elevation = dp(SWIPE_PANEL_ELEVATION_DP).toFloat()
         }
+        val sidePanelAvailable = sessionDisplay?.viewAreas?.sidePanel() != null
         val categories = listOf(
             "connection" to R.string.connection,
             "display" to R.string.settings_display,
@@ -2862,7 +2865,10 @@ class CarPlayHostActivity : ComponentActivity() {
             "diagnostics" to R.string.diagnostics,
             "advanced" to R.string.settings_advanced,
             "more" to R.string.settings_more,
-        )
+        ).filter { (key, _) ->
+            !ts7 || key in setOf("connection", "display", "vehicle", "diagnostics", "more") ||
+                (key == "advanced" && sidePanelAvailable)
+        }
         val pages = LinkedHashMap<String, LinearLayout>()
         categories.forEach { (key, title) ->
             pages[key] = LinearLayout(this).apply {
@@ -2878,7 +2884,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         fun pageFor(key: String) = pages.getValue(key)
         var content = pageFor("connection")
-        if (sessionDisplay?.viewAreas?.sidePanel() != null) {
+        if (sidePanelAvailable) {
             pageFor("advanced").addView(DiPlayButton(this).apply {
                 text = getString(if (sidePanelShown) R.string.side_panel_full_screen else R.string.side_panel_show)
                 textSize = 17f
@@ -2890,13 +2896,15 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        content.addView(
-            buildMfiTargetSection(),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(14) },
-        )
+        if (!ts7) {
+            content.addView(
+                buildMfiTargetSection(),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(14) },
+            )
+        }
 
         val wirelessRowResult = ConnectionSettingsSection.createWirelessCarPlayRow(
             context = this,
@@ -2921,13 +2929,15 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(30) },
         )
 
-        content.addView(
-            buildHotspotModeSection(),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(30) },
-        )
+        if (!ts7) {
+            content.addView(
+                buildHotspotModeSection(),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(30) },
+            )
+        }
 
         content.addView(
             menuText(getString(R.string.hotspot_status), 20f, MENU_SECONDARY),
@@ -2945,38 +2955,42 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(6) },
         )
 
-        content.addView(
-            settingsCategoryHeader(getString(R.string.automatic_connection)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(36) },
-        )
-        content.addView(
-            settingsSwitchRow(
-                label = getString(R.string.auto_start_on_boot),
-                checked = autoStartOnBoot,
-                description = getString(R.string.start_carplay_automatically_after_device_boot),
-            ) { checked ->
-                autoStartOnBoot = checked
-                appendLog("Boot auto-start ${if (checked) "enabled" else "disabled"}")
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(12) },
-        )
+        if (!ts7) {
+            content.addView(
+                settingsCategoryHeader(getString(R.string.automatic_connection)),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(36) },
+            )
+            content.addView(
+                settingsSwitchRow(
+                    label = getString(R.string.auto_start_on_boot),
+                    checked = autoStartOnBoot,
+                    description = getString(R.string.start_carplay_automatically_after_device_boot),
+                ) { checked ->
+                    autoStartOnBoot = checked
+                    appendLog("Boot auto-start ${if (checked) "enabled" else "disabled"}")
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(12) },
+            )
+        }
 
-        content = pageFor("navigation")
-        content.addView(
-            buildLocationReportingSection(),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(12) },
-        )
+        if (!ts7) {
+            content = pageFor("navigation")
+            content.addView(
+                buildLocationReportingSection(),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(12) },
+            )
+        }
 
-        if (advancedAudioChannelMappingSupported) {
+        if (advancedAudioChannelMappingSupported && !ts7) {
             content = pageFor("advanced")
             content.addView(
                 settingsSwitchRow(
@@ -3000,13 +3014,13 @@ class CarPlayHostActivity : ComponentActivity() {
 
         content = pageFor("vehicle")
         content.addView(
-            buildIdentitySettingsSection(),
+            buildIdentitySettingsSection(ts7),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = dp(12) },
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && CarHotspotSetup.isBydHeadUnit(this)) {
+        if (!ts7 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && CarHotspotSetup.isBydHeadUnit(this)) {
             content.addView(settingsSwitchRow(
                 label = getString(R.string.settings_hide_byd_call_popup),
                 checked = hideBydCallPopup,
@@ -3074,82 +3088,40 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(24) },
         )
 
-        content.addView(
-            settingsChoiceRow(
-                label = getString(R.string.physical_size_basis),
-                options = listOf(
-                    AirPlayPhysicalSizeBasis.WIDTH to getString(R.string.widest_width),
-                    AirPlayPhysicalSizeBasis.HEIGHT to getString(R.string.longest_height),
-                ),
-                selected = physicalSizeBasis,
-            ) { value ->
-                physicalSizeBasis = value
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(24) },
-        )
-
-        content.addView(
-            buildStepSliderSection(
-                title = getString(R.string.physical_length),
-                values = (
-                    AirPlayDisplaySettings.MIN_WIDTH_PHYSICAL_MM..
-                        AirPlayDisplaySettings.MAX_WIDTH_PHYSICAL_MM
-                    step AirPlayDisplaySettings.WIDTH_PHYSICAL_MM_STEP
-                    ).toList(),
-                selectedValue = widthPhysicalMm,
-                label = { "$it mm" },
-                onValueChanged = { value ->
-                    widthPhysicalMm = value
+        if (!ts7) {
+            content.addView(
+                settingsChoiceRow(
+                    label = getString(R.string.physical_size_basis),
+                    options = listOf(
+                        AirPlayPhysicalSizeBasis.WIDTH to getString(R.string.widest_width),
+                        AirPlayPhysicalSizeBasis.HEIGHT to getString(R.string.longest_height),
+                    ),
+                    selected = physicalSizeBasis,
+                ) { value ->
+                    physicalSizeBasis = value
                     updateResolutionMenu()
                 },
-            ),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(16) },
-        )
-
-        val hevcRow = DisplaySettingsSection.createHevcRow(
-            context = this,
-            checked = hevcEnabled,
-            theme = settingsOverlayTheme,
-        ) { checked ->
-            if (hevcEnabled == checked) return@createHevcRow
-            hevcEnabled = checked
-            appendLog(
-                "HEVC (H.265) ${if (hevcEnabled) "enabled" else "disabled"}; " +
-                    "applies when settings close",
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(24) },
             )
-            updateResolutionMenu()
-        }
-        pageFor("advanced").addView(
-            hevcRow.rowView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(30) },
-        )
 
-        val softwareHevcRow = DisplaySettingsSection.createSoftwareHevcRow(
-            context = this,
-            checked = hevcSoftwareDecoderEnabled,
-            theme = settingsOverlayTheme,
-        ) { checked ->
-            if (hevcSoftwareDecoderEnabled == checked) return@createSoftwareHevcRow
-            hevcSoftwareDecoderEnabled = checked
-            appendLog(
-                "HEVC software decoder ${if (hevcSoftwareDecoderEnabled) "enabled" else "disabled"}; " +
-                    "applies when settings close",
-            )
-            updateResolutionMenu()
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            pageFor("advanced").addView(
-                softwareHevcRow.rowView,
+            content.addView(
+                buildStepSliderSection(
+                    title = getString(R.string.physical_length),
+                    values = (
+                        AirPlayDisplaySettings.MIN_WIDTH_PHYSICAL_MM..
+                            AirPlayDisplaySettings.MAX_WIDTH_PHYSICAL_MM
+                        step AirPlayDisplaySettings.WIDTH_PHYSICAL_MM_STEP
+                        ).toList(),
+                    selectedValue = widthPhysicalMm,
+                    label = { "$it mm" },
+                    onValueChanged = { value ->
+                        widthPhysicalMm = value
+                        updateResolutionMenu()
+                    },
+                ),
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -3157,8 +3129,54 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         }
 
+        if (!ts7) {
+            val hevcRow = DisplaySettingsSection.createHevcRow(
+                context = this,
+                checked = hevcEnabled,
+                theme = settingsOverlayTheme,
+            ) { checked ->
+                if (hevcEnabled == checked) return@createHevcRow
+                hevcEnabled = checked
+                appendLog(
+                    "HEVC (H.265) ${if (hevcEnabled) "enabled" else "disabled"}; " +
+                        "applies when settings close",
+                )
+                updateResolutionMenu()
+            }
+            pageFor("advanced").addView(
+                hevcRow.rowView,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(30) },
+            )
+
+            val softwareHevcRow = DisplaySettingsSection.createSoftwareHevcRow(
+                context = this,
+                checked = hevcSoftwareDecoderEnabled,
+                theme = settingsOverlayTheme,
+            ) { checked ->
+                if (hevcSoftwareDecoderEnabled == checked) return@createSoftwareHevcRow
+                hevcSoftwareDecoderEnabled = checked
+                appendLog(
+                    "HEVC software decoder ${if (hevcSoftwareDecoderEnabled) "enabled" else "disabled"}; " +
+                        "applies when settings close",
+                )
+                updateResolutionMenu()
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                pageFor("advanced").addView(
+                    softwareHevcRow.rowView,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { topMargin = dp(16) },
+                )
+            }
+        }
+
         content.addView(
-            buildSafeAreaSection(),
+            buildSafeAreaSection(ts7),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -3192,7 +3210,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            content = pageFor("advanced")
+            content = pageFor(if (ts7) "diagnostics" else "advanced")
             content.addView(
                 settingsCategoryHeader(getString(R.string.android_9_compatibility)),
                 LinearLayout.LayoutParams(
@@ -3247,7 +3265,9 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         gestureButton.text = settingsGestureButtonText()
-        pageFor("vehicle").addView(gestureButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        if (!ts7) {
+            pageFor("vehicle").addView(gestureButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        }
 
         val openDiPlaySettingsButton = DiPlayButton(this).apply {
             text = "${getString(R.string.app_name)} ${getString(R.string.settings)}"
@@ -3742,30 +3762,35 @@ class CarPlayHostActivity : ComponentActivity() {
         MfiTarget.REMOTE -> getString(R.string.remote)
     }
 
-    private fun buildIdentitySettingsSection(): View {
+    private fun buildIdentitySettingsSection(): View =
+        buildIdentitySettingsSection(com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
+
+    private fun buildIdentitySettingsSection(ts7: Boolean): View {
         val section = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        section.addView(
-            settingsInputRow(getString(R.string.manufacturer), manufacturer) { value ->
-                manufacturer = value
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        section.addView(
-            settingsInputRow(getString(R.string.model), model) { value ->
-                model = value
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(10) },
-        )
+        if (!ts7) {
+            section.addView(
+                settingsInputRow(getString(R.string.manufacturer), manufacturer) { value ->
+                    manufacturer = value
+                    updateResolutionMenu()
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            section.addView(
+                settingsInputRow(getString(R.string.model), model) { value ->
+                    model = value
+                    updateResolutionMenu()
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(10) },
+            )
+        }
         section.addView(
             settingsInputRow(getString(R.string.oem_label), oemLabel) { value ->
                 oemLabel = value
@@ -4158,7 +4183,10 @@ class CarPlayHostActivity : ComponentActivity() {
         return section
     }
 
-    private fun buildSafeAreaSection(): View {
+    private fun buildSafeAreaSection(): View =
+        buildSafeAreaSection(com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
+
+    private fun buildSafeAreaSection(ts7: Boolean): View {
         val section = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -4205,59 +4233,61 @@ class CarPlayHostActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = dp(10) },
         )
-        section.addView(
-            settingsSwitchRow(
-                label = getString(R.string.draw_outside_safe_area),
-                checked = safeAreaDrawOutside,
-                description = getString(R.string.allow_carplay_ui_outside_the_safe_area),
-            ) { checked ->
-                safeAreaDrawOutside = checked
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(12) },
-        )
-        section.addView(
-            settingsSwitchRow(
-                label = getString(R.string.rect_fill_disable_safe_area),
-                checked = mainDisplayDisableSafeArea,
-                description = getString(R.string.rect_fill_disable_safe_area_description),
-            ) { checked ->
-                mainDisplayDisableSafeArea = checked
-                updateSafeAreaSummary()
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(12) },
-        )
-        section.addView(
-            menuText(getString(R.string.black_corner_overlay_description), 15f, MENU_SECONDARY),
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                .apply { topMargin = dp(12) },
-        )
-        section.addView(
-            buildStepSliderSection(
-                getString(R.string.black_corner_overlay),
-                CarPlayBlackCornerOverlay.RADII_DP,
-                blackCornerRadiusDp,
-                { value ->
-                    if (value == CarPlayBlackCornerOverlay.IPHONE_MASK) getString(R.string.iphone_corner_mask_mode)
-                    else if (value == 0) getString(R.string.black_corner_overlay_off)
-                    else getString(R.string.black_corner_overlay_value, value)
+        if (!ts7) {
+            section.addView(
+                settingsSwitchRow(
+                    label = getString(R.string.draw_outside_safe_area),
+                    checked = safeAreaDrawOutside,
+                    description = getString(R.string.allow_carplay_ui_outside_the_safe_area),
+                ) { checked ->
+                    safeAreaDrawOutside = checked
+                    updateResolutionMenu()
                 },
-            ) { value ->
-                blackCornerRadiusDp = value
-                blackCornerOverlay?.radiusDp = localCornerRadius()
-                clearIphoneCornerMask()
-                appendLog("Local black corner radius preview=$value dp")
-            },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                .apply { topMargin = dp(8) },
-        )
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(12) },
+            )
+            section.addView(
+                settingsSwitchRow(
+                    label = getString(R.string.rect_fill_disable_safe_area),
+                    checked = mainDisplayDisableSafeArea,
+                    description = getString(R.string.rect_fill_disable_safe_area_description),
+                ) { checked ->
+                    mainDisplayDisableSafeArea = checked
+                    updateSafeAreaSummary()
+                    updateResolutionMenu()
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(12) },
+            )
+            section.addView(
+                menuText(getString(R.string.black_corner_overlay_description), 15f, MENU_SECONDARY),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { topMargin = dp(12) },
+            )
+            section.addView(
+                buildStepSliderSection(
+                    getString(R.string.black_corner_overlay),
+                    CarPlayBlackCornerOverlay.RADII_DP,
+                    blackCornerRadiusDp,
+                    { value ->
+                        if (value == CarPlayBlackCornerOverlay.IPHONE_MASK) getString(R.string.iphone_corner_mask_mode)
+                        else if (value == 0) getString(R.string.black_corner_overlay_off)
+                        else getString(R.string.black_corner_overlay_value, value)
+                    },
+                ) { value ->
+                    blackCornerRadiusDp = value
+                    blackCornerOverlay?.radiusDp = localCornerRadius()
+                    clearIphoneCornerMask()
+                    appendLog("Local black corner radius preview=$value dp")
+                },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { topMargin = dp(8) },
+            )
+        }
         safeAreaSummaryView = summary
         updateSafeAreaSummary()
         return section
