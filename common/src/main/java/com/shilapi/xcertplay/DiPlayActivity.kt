@@ -5879,7 +5879,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     /** The text of a diagnostic report. It reads the session logs, so call it off the main thread. */
-    private fun diagnosticReportText(appContext: Context): String = buildString {
+    private fun diagnosticReportText(appContext: Context): String {
+        check(AsyncDiagnosticLog.flush()) { "Session diagnostics did not finish writing" }
+        return diagnosticReportContent(appContext)
+    }
+
+    private fun diagnosticReportContent(appContext: Context): String = buildString {
         appendLine("DiPlay ${version()} · private beta diagnostic report")
         appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
         appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")

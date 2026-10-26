@@ -34,6 +34,7 @@ class DiagnosticRedactorTest {
                 }
                 log.append("Audio: payload=private-recording")
             }
+            assertTrue(AsyncDiagnosticLog.awaitIdle(5_000))
             val report = file.readText()
             lines.forEach { assertTrue(report.contains(it)) }
             assertFalse(report.contains("private-recording"))
@@ -72,6 +73,7 @@ class DiagnosticRedactorTest {
                 it.append(audio)
                 it.append(video)
             }
+            assertTrue(AsyncDiagnosticLog.awaitIdle(5_000))
             val report = folder.resolve("diplay.log").readText()
             assertTrue(report.contains(audio))
             assertTrue(report.contains(video))
@@ -96,6 +98,7 @@ class DiagnosticRedactorTest {
             repeat(1600) { log.append("connection state " + "x".repeat(690)) }
             log.append("CarPlay connected")
             log.close()
+            assertTrue(AsyncDiagnosticLog.awaitIdle(10_000))
             assertTrue(folder.resolve("diplay.log").length() <= SessionLogFile.MAX_BYTES + 701)
             assertTrue(folder.resolve("previous.log").length() <= SessionLogFile.MAX_BYTES + 701)
             assertTrue(folder.resolve("diplay.log").readText().contains("CarPlay connected"))
@@ -112,6 +115,7 @@ class DiagnosticRedactorTest {
                     it.append("password=secret")
                 }
             }
+            assertTrue(AsyncDiagnosticLog.awaitIdle(5_000))
             val history = SessionLogFile.REPORT_NAMES.map { folder.resolve(it).readText() }
             assertEquals(8, folder.listFiles()!!.size)
             assertTrue(history.first().contains("session=2"))
@@ -150,6 +154,7 @@ class DiagnosticRedactorTest {
                 log.append("deviceName=private")
                 log.append("payload=private")
             }
+            assertTrue(AsyncDiagnosticLog.awaitIdle(5_000))
             val saved = folder.resolve("diplay.log").readText()
             lines.forEach { assertTrue(it, saved.contains(it)) }
             assertFalse(saved.contains("private"))

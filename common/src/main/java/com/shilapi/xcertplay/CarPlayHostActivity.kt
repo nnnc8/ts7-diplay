@@ -6668,16 +6668,12 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun appendLog(message: String) {
-        val safe = DiagnosticRedactor.redact(message) ?: return
-        sessionLog?.append(formattedLogLine(safe, System.currentTimeMillis()))
+        AsyncDiagnosticLog.append(sessionLog, message)
     }
 
     private fun appendFileLog(message: String) {
-        sessionLog?.append(formattedLogLine(message, System.currentTimeMillis()))
+        AsyncDiagnosticLog.append(sessionLog, message)
     }
-
-    private fun formattedLogLine(message: String, nowMillis: Long): String =
-        "${SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(nowMillis))}  $message"
 
     private val processMarker by lazy { SessionProcessMarker(File(filesDir, "active-carplay-session"), Process.myPid()) }
     private var carProfileDiagnostics: CarBluetoothProfileDiagnostics? = null

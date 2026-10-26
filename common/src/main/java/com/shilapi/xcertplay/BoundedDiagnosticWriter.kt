@@ -6,6 +6,7 @@ import java.util.ArrayDeque
 /** One daemon writer, with at most [maxPending] queued entries plus its active write. */
 internal class BoundedDiagnosticWriter<T : Any>(
     private val maxPending: Int = 64,
+    private val onDropped: (T, Long) -> Unit = { _, _ -> },
     private val write: (T) -> Unit,
 ) : Closeable {
     private val monitor = Object()
@@ -13,6 +14,7 @@ internal class BoundedDiagnosticWriter<T : Any>(
     private var closed = false
     private var active = false
     private var dropped = 0L
+    private var reportedDropped = 0L
 
     init {
         require(maxPending > 0)
@@ -39,12 +41,15 @@ internal class BoundedDiagnosticWriter<T : Any>(
 
     private fun drain() {
         while (true) {
-            val next = synchronized(monitor) {
+            val (next, droppedBefore) = synchronized(monitor) {
                 while (pending.isEmpty() && !closed) monitor.wait()
                 if (pending.isEmpty()) return
                 active = true
-                pending.removeFirst()
+                val count = dropped - reportedDropped
+                reportedDropped = dropped
+                pending.removeFirst() to count
             }
+            if (droppedBefore > 0) runCatching { onDropped(next, droppedBefore) }
             // Disk failures or a broken diagnostic callback must not stop later writes.
             try {
                 runCatching { write(next) }

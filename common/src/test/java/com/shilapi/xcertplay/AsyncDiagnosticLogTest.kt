@@ -24,7 +24,9 @@ class AsyncDiagnosticLogTest {
             assertFalse(current.file.readText().contains("teardown end"))
             assertEquals(4, evidence.lineSequence().count())
         } finally {
-            old.close(); current.close(); folder.deleteRecursively()
+            old.close(); current.close()
+            assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
+            folder.deleteRecursively()
         }
     }
 }

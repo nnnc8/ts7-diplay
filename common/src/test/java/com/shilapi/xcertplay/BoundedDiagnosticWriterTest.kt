@@ -12,7 +12,10 @@ class BoundedDiagnosticWriterTest {
         val release = CountDownLatch(1)
         val enqueued = CountDownLatch(1)
         val written = Collections.synchronizedList(mutableListOf<Int>())
-        val writer = BoundedDiagnosticWriter<Int> { value ->
+        val dropNotes = Collections.synchronizedList(mutableListOf<Pair<Int, Long>>())
+        val writer = BoundedDiagnosticWriter<Int>(
+            onDropped = { next, count -> dropNotes.add(next to count) },
+        ) { value ->
             if (value == -1) {
                 entered.countDown()
                 release.await()
@@ -33,6 +36,7 @@ class BoundedDiagnosticWriterTest {
             release.countDown()
             assertTrue(writer.awaitIdle(2_000))
             assertEquals(listOf(-1) + (36 until 100).toList(), written.toList())
+            assertEquals(listOf(36 to 36L), dropNotes.toList())
         } finally {
             release.countDown()
             writer.close()

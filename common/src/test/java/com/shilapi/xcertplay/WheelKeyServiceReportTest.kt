@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.view.KeyEvent
 import com.shilapi.xcertplay.media.NavigationPlaybackSnapshot
+import java.io.File
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -172,9 +173,15 @@ class WheelKeyServiceReportTest {
 
     @Test fun theDiagnosticReportCarriesTheWheelKeyLines() {
         assertFalse(press(KeyEvent.KEYCODE_F7))
+        val sessionLog = SessionLogFile(File(service.filesDir, "logs/diplay.log"))
+        sessionLog.reset("report test")
+        sessionLog.append("queued diagnostic report marker")
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         val text = activity.javaClass.getDeclaredMethod("diagnosticReportText", Context::class.java)
             .apply { isAccessible = true }.invoke(activity, service.applicationContext) as String
+        assertTrue(text, text.contains("queued diagnostic report marker"))
+        sessionLog.close()
+        assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
         val lines = text.lines()
         val serviceLine = lines.indexOfFirst { it.startsWith("Wheel key service: ") }
         assertTrue(text, serviceLine >= 0)

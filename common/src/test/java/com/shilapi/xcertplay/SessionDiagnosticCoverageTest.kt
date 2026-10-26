@@ -31,6 +31,7 @@ class SessionDiagnosticCoverageTest {
         assertTrue("diagnostic log writer did not drain", AsyncDiagnosticLog.awaitIdle(2_000))
         assertTrue(File(activity.filesDir, "logs/diplay.log").readText().contains(message))
         (type.getDeclaredField("sessionLog").apply { isAccessible = true }.get(activity) as SessionLogFile).close()
+        assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
     }
 
     @Test fun bluetoothRoleBroadcastKeepsStateAndNoDeviceIdentifier() {

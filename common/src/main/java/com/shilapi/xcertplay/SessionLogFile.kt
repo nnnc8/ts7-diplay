@@ -7,15 +7,24 @@ import java.io.File
 internal class SessionLogFile(val file: File) : Closeable {
     private val lock = Any()
     private var closed = false
-    fun reset(header: String) = synchronized(lock) {
+
+    /** All filesystem work is serialized by [AsyncDiagnosticLog]'s bounded background writer. */
+    fun reset(header: String) = AsyncDiagnosticLog.reset(this, header)
+
+    fun append(line: String) = AsyncDiagnosticLog.appendLine(this, line)
+
+    override fun close() = AsyncDiagnosticLog.close(this)
+
+    internal fun resetNow(header: String) = synchronized(lock) {
         if (!closed) {
             file.parentFile?.mkdirs()
             rotate()
             file.writeText("")
-            append(header)
+            appendNow(header)
         }
     }
-    fun append(line: String) = synchronized(lock) {
+
+    internal fun appendNow(line: String) = synchronized(lock) {
         if (closed) return@synchronized
         val safe = DiagnosticRedactor.redact(line) ?: return@synchronized
         runCatching {
@@ -27,6 +36,9 @@ internal class SessionLogFile(val file: File) : Closeable {
         }
         Unit
     }
+
+    internal fun closeNow() = synchronized(lock) { closed = true }
+
     private fun rotate() {
         if (!file.exists() || file.length() == 0L) return
         for (index in ARCHIVE_NAMES.lastIndex downTo 1) {
@@ -36,7 +48,6 @@ internal class SessionLogFile(val file: File) : Closeable {
         }
         file.copyTo(File(file.parentFile, ARCHIVE_NAMES.first()), overwrite = true)
     }
-    override fun close() = synchronized(lock) { closed = true }
     companion object {
         const val MAX_BYTES = 512 * 1024L
         private val ARCHIVE_NAMES = listOf("previous.log") + (2..7).map { "previous-$it.log" }

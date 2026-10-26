@@ -19,7 +19,11 @@ import org.robolectric.annotation.Config
 class CarPlayConnectionDiagnosticLogTest {
     private lateinit var activity: CarPlayHostActivity
     private lateinit var listener: AirPlaySessionListener
-    private val log get() = File(activity.filesDir, "logs/diplay.log").readText()
+    private val log: String
+        get() {
+            assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
+            return File(activity.filesDir, "logs/diplay.log").readText()
+        }
 
     @Before fun prepareOldControllerListener() {
         activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
@@ -33,6 +37,7 @@ class CarPlayConnectionDiagnosticLogTest {
         assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
         activity.javaClass.getDeclaredField("sessionLog").apply { isAccessible = true }
             .get(activity).let { (it as Closeable).close() }
+        assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
         for (field in listOf("teardownExecutor", "airPlayCommandExecutor")) {
             (activity.javaClass.getDeclaredField(field).apply { isAccessible = true }
                 .get(activity) as ExecutorService).shutdownNow()
