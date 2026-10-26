@@ -1385,6 +1385,8 @@ class CarPlayController(
                         receiveDiagnostics.snapshot()
                 },
                 log = { message -> if (!isStaleWirelessRun(generation)) debugLog(message) },
+                // The TS7's weak CPU stops the 10 s sampling once the session is active.
+                stopSamplingWhenActive = com.shilapi.xcertplay.network.Ts7HeadUnit.detected,
             )
             wirelessDiagnostics = diagnostics
             onStatus(

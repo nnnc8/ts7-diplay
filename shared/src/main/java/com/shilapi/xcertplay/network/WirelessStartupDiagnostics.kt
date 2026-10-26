@@ -14,8 +14,14 @@ internal class WirelessStartupDiagnostics(
     private val log: (String) -> Unit,
     private val intervalMillis: Long = 10_000,
     private val nowNs: () -> Long = System::nanoTime,
+    /**
+     * Weak CPUs (the TS7) stop the periodic sampling once the session is active: one last snapshot
+     * is emitted, then the observer thread ends. Failures and reconnects keep sampling as before.
+     */
+    private val stopSamplingWhenActive: Boolean = false,
 ) : Closeable {
     private val closed = AtomicBoolean(false)
+    @Volatile private var samplingDone = false
     private val startedNanos = nowNs()
     private var authenticated = false
     private var wifiConfigs = 0
@@ -51,7 +57,10 @@ internal class WirelessStartupDiagnostics(
             firstStartRequestNs?.let { firstTcpAfterStartMs = elapsedMillis(it) }
         }
     }
-    @Synchronized fun sessionActive() { sessionActive = true }
+    @Synchronized fun sessionActive() {
+        sessionActive = true
+        if (stopSamplingWhenActive) samplingDone = true
+    }
 
     @Synchronized fun summary(): String {
         val waitingFor = when {
@@ -80,6 +89,11 @@ internal class WirelessStartupDiagnostics(
                 lastSnapshot = snapshot
                 emit(summary())
                 emitSnapshot(snapshot)
+                if (samplingDone) {
+                    // The session is up and this head unit asked to stop: end after the last snapshot.
+                    emit("${summary()} observation=ended reason=session_active")
+                    return
+                }
                 Thread.sleep(intervalMillis)
             }
         } catch (_: InterruptedException) {

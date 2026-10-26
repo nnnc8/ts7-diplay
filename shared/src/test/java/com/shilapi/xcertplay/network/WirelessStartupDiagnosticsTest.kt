@@ -93,6 +93,52 @@ class WirelessStartupDiagnosticsTest {
         } finally { diagnostics.close() }
     }
 
+    @Test fun anActiveSessionStopsThePeriodicSamplingOnlyWhenTheHeadUnitAsksForIt() {
+        // TS7 mode: one last snapshot after the session becomes active, then the observer ends.
+        val stopped = CountDownLatch(1)
+        var samples = 0
+        val ts7 = WirelessStartupDiagnostics(
+            sample = { samples++; "" },
+            log = { if (it.contains("observation=ended reason=session_active")) stopped.countDown() },
+            intervalMillis = 10,
+            stopSamplingWhenActive = true,
+        )
+        ts7.start()
+        ts7.sessionActive()
+        try {
+            assertTrue(stopped.await(2, TimeUnit.SECONDS))
+            val afterStop = samples
+            Thread.sleep(100)
+            assertEquals(afterStop, samples)
+        } finally { ts7.close() }
+
+        // Stock mode: sampling continues while the session is active, until close.
+        val kept = CountDownLatch(1)
+        val stock = WirelessStartupDiagnostics(
+            sample = { "" },
+            log = { if (it.startsWith("wireless startup")) kept.countDown() },
+            intervalMillis = 10,
+        )
+        stock.start()
+        stock.sessionActive()
+        try {
+            assertTrue(kept.await(2, TimeUnit.SECONDS))
+            // Still sampling after the session became active: a later cycle must be observed.
+            var cycles = 0
+            val stillRunning = CountDownLatch(1)
+            val probing = WirelessStartupDiagnostics(
+                sample = { if (++cycles > 2) stillRunning.countDown(); "" },
+                log = {},
+                intervalMillis = 10,
+            )
+            probing.start()
+            probing.sessionActive()
+            try {
+                assertTrue(stillRunning.await(2, TimeUnit.SECONDS))
+            } finally { probing.close() }
+        } finally { stock.close() }
+    }
+
     @Test fun addressInventoryCountsAlternativeFamiliesWithoutExportingAddresses() {
         val v6 = InetAddress.getByName("fe80::1234")
         val scoped = Inet6Address.getByAddress(null, v6.address, 7)
