@@ -6496,6 +6496,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun onHostTouch(view: View, event: MotionEvent): Boolean {
         if (menuOpen) return true
+        val touchEventAtNs = System.nanoTime()
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -6564,17 +6565,19 @@ class CarPlayHostActivity : ComponentActivity() {
             return true
         }
         val contacts = CarPlayTouchMapper.contacts(event, content)
-        val queued = controller?.sendTouch(contacts) ?: false
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN,
-            MotionEvent.ACTION_POINTER_DOWN,
-            MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_POINTER_UP,
-            MotionEvent.ACTION_CANCEL -> Log.i(
-                TAG,
-                "touch action=${MotionEvent.actionToString(event.actionMasked)} " +
-                    "pointers=${event.pointerCount} queued=$queued",
-            )
+        val queued = controller?.sendTouch(contacts, touchEventAtNs) ?: false
+        if (!com.shilapi.xcertplay.network.Ts7HeadUnit.detected) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN,
+                MotionEvent.ACTION_POINTER_DOWN,
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_POINTER_UP,
+                MotionEvent.ACTION_CANCEL -> Log.i(
+                    TAG,
+                    "touch action=${MotionEvent.actionToString(event.actionMasked)} " +
+                        "pointers=${event.pointerCount} queued=$queued",
+                )
+            }
         }
         return true
     }

@@ -25,8 +25,8 @@ internal class VideoStats(
     private var late = 0
     private var pacingDelayNanos = 0L
 
-    @Synchronized fun onReceived(size: Int) {
-        val now = nanoTime()
+    @Synchronized fun onReceived(size: Int, receivedAtNs: Long = nanoTime()) {
+        val now = receivedAtNs.takeIf { it > 0L } ?: nanoTime()
         val gap = now - lastArrivalNs
         if (lastArrivalNs != 0L && gap < IDLE_GAP_NS) maxArrivalGapNs = maxOf(maxArrivalGapNs, gap)
         lastArrivalNs = now
@@ -58,6 +58,14 @@ internal class VideoStats(
         if (decodeSamples < decodeMicros.size) decodeMicros[decodeSamples++] = (ns / 1000).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
     }
 
+    @Synchronized fun onFrameDecoded(receivedAtNs: Long, decodedAtNs: Long) {
+        if (label.isEmpty()) TouchLatencyProbe.onFrameDecoded(receivedAtNs, decodedAtNs)
+    }
+
+    @Synchronized fun onFrameSubmittedToSurface(decodedAtNs: Long, submittedAtNs: Long) {
+        if (label.isEmpty()) TouchLatencyProbe.onFrameSubmittedToSurface(decodedAtNs, submittedAtNs)
+    }
+
     /** A paced frame left the decoder after its display time and was shown at once. */
     @Synchronized fun onLate() { late++ }
 
@@ -77,19 +85,23 @@ internal class VideoStats(
         val elapsedNs = now - windowStartNs
         if (elapsedNs < WINDOW_NS) return null
         val seconds = elapsedNs / 1e9
-        if (received == 0 && touchSamples == 0) { windowStartNs = now; return null }
+        val latencySummary = if (label.isEmpty()) {
+            TouchLatencyProbe.drainSummary(includeEmpty = received > 0 || touchSamples > 0)
+        } else null
+        if (received == 0 && touchSamples == 0 && latencySummary == null) { windowStartNs = now; return null }
         val touchAvgMs = if (touchSamples == 0) -1 else touchLatencySumNs / touchSamples / 1_000_000
         val touchShownAvgMs = if (touchShownSamples == 0) -1
             else touchShownLatencySumNs / touchShownSamples / 1_000_000
+        val touchSendMaxMs = if (label.isEmpty()) TouchLatencyProbe.maxSendNs / 1_000_000 else 0L
         val line = ("video stats$label rx=%.1ffps shown=%.1ffps maxGap=%dms kbps=%d recoveries=%d " +
             "touch2frame avg=%dms max=%dms n=%d touchSendMax=%dms " +
             "touch2shown avg=%dms max=%dms n=%d").format(
             received / seconds, rendered / seconds, maxArrivalGapNs / 1_000_000,
             (bytes * 8 / 1000 / seconds).toLong(), recoveries,
-            touchAvgMs, maxTouchLatencyNs / 1_000_000, touchSamples, TouchLatencyProbe.maxSendNs / 1_000_000,
+            touchAvgMs, maxTouchLatencyNs / 1_000_000, touchSamples, touchSendMaxMs,
             touchShownAvgMs, maxTouchShownLatencyNs / 1_000_000, touchShownSamples,
-        ) + decodeSummary()
-        TouchLatencyProbe.maxSendNs = 0
+        ) + decodeSummary() + (latencySummary?.let { " $it" } ?: "")
+        if (label.isEmpty()) TouchLatencyProbe.maxSendNs = 0
         Log.i(TAG, line)
         windowStartNs = now
         received = 0; rendered = 0; recoveries = 0; bytes = 0; maxArrivalGapNs = 0

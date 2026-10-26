@@ -190,4 +190,20 @@ class WheelKeyServiceReportTest {
         assertTrue(lines[serviceLine + 3], lines[serviceLine + 3].endsWith("  key 137/0 device 7 left to the head unit"))
         assertEquals("", lines[serviceLine + 4])
     }
+
+    @Test fun theDiagnosticReportCarriesTheSegmentedVideoLatencyLine() {
+        val sessionLog = SessionLogFile(File(service.filesDir, "logs/diplay.log"))
+        val videoLine = "Video: touchEvent2Hid p50=12.0ms p90=18.0ms max=21.0ms n=20 " +
+            "hid2FrameReceived p50=40.0ms p90=65.0ms max=70.0ms n=20 " +
+            "frameReceived2DecodeOutput p50=55.0ms p90=82.0ms max=90.0ms n=120 " +
+            "decodeOutput2SurfaceSubmit p50=0.1ms p90=0.2ms max=0.4ms n=120"
+        sessionLog.reset("video latency report test")
+        sessionLog.append(videoLine)
+        val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
+        val text = activity.javaClass.getDeclaredMethod("diagnosticReportText", Context::class.java)
+            .apply { isAccessible = true }.invoke(activity, service.applicationContext) as String
+        assertTrue(text, text.contains(videoLine))
+        sessionLog.close()
+        assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
+    }
 }

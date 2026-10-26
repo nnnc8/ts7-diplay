@@ -75,6 +75,7 @@ class AirPlaySession(
     private val mfi: MfiAuthenticator?,
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
+    private val traceTouchHidReports: Boolean = !com.shilapi.xcertplay.network.Ts7HeadUnit.detected,
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
@@ -287,8 +288,10 @@ class AirPlaySession(
     fun showViewArea(index: Int): Boolean =
         sendCommand(AirPlayInfoPlist.viewAreaCommand(index, config.main.viewAreas?.size ?: 1))
 
-    fun sendCommand(command: Map<String, Any?>): Boolean = synchronized(eventWriteLock) {
-        sendCommandLocked(command)
+    fun sendCommand(command: Map<String, Any?>): Boolean = sendCommand(command, traceCommand = true)
+
+    private fun sendCommand(command: Map<String, Any?>, traceCommand: Boolean): Boolean = synchronized(eventWriteLock) {
+        sendCommandLocked(command, traceCommand = traceCommand)
     }
 
     /**
@@ -309,7 +312,11 @@ class AirPlaySession(
     internal fun setVideoPlaybackAllowed(allowed: Boolean): VideoPlaybackDelivery =
         videoPlaybackAvailability.setDesired(allowed)
 
-    private fun sendCommandLocked(command: Map<String, Any?>, extraHeaders: String = ""): Boolean {
+    private fun sendCommandLocked(
+        command: Map<String, Any?>,
+        extraHeaders: String = "",
+        traceCommand: Boolean = true,
+    ): Boolean {
         val socket = eventSocket ?: return false
         val cipher = eventCipher ?: return false
         eventCseq++
@@ -318,7 +325,7 @@ class AirPlaySession(
             "Content-Type: $PLIST_CONTENT_TYPE\r\n" +
             "Content-Length: ${body.size}\r\n" +
             "CSeq: $eventCseq\r\n\r\n"
-        trace("airplay event tx headers=$head bodyHex=${body.toHex()}")
+        if (traceCommand) trace("airplay event tx headers=$head bodyHex=${body.toHex()}")
         return try {
             val bytes = cipher.encrypt(head.toByteArray(Charsets.US_ASCII) + body)
             val output = socket.getOutputStream()
@@ -332,14 +339,19 @@ class AirPlaySession(
         }
     }
 
-    fun sendTouch(contacts: List<AirPlayContact>): Boolean {
+    fun sendTouch(contacts: List<AirPlayContact>, touchEventAtNs: Long = 0L): Boolean {
         val scaled = contacts.map {
             it.copy(x = it.x * config.main.widthPixels, y = it.y * config.main.heightPixels)
         }
         val report = AirPlayHid.touchReport(scaled)
         val sendStartNs = System.nanoTime()
-        val sent = sendHidReport(AirPlayHid.TOUCH_HID_UID, report)
-        if (sent) com.shilapi.xcertplay.media.TouchLatencyProbe.onTouchSent(sendStartNs, System.nanoTime() - sendStartNs)
+        val sent = sendHidReport(AirPlayHid.TOUCH_HID_UID, report, traceCommand = traceTouchHidReports)
+        val sentAtNs = System.nanoTime()
+        if (sent) com.shilapi.xcertplay.media.TouchLatencyProbe.onTouchSent(
+            touchEventAtNs,
+            sentAtNs,
+            sentAtNs - sendStartNs,
+        )
         if (sent && firstTouchSendLogged.compareAndSet(false, true)) {
             val first = scaled.firstOrNull()
             Log.i(
@@ -427,13 +439,14 @@ class AirPlaySession(
         return sent
     }
 
-    private fun sendHidReport(uid: Int, report: ByteArray): Boolean =
+    private fun sendHidReport(uid: Int, report: ByteArray, traceCommand: Boolean = true): Boolean =
         sendCommand(
             linkedMapOf(
                 "type" to "hidSendReport",
                 "uuid" to uid.toString(16),
                 "hidReport" to report,
             ),
+            traceCommand,
         )
 
     private fun runControl() {

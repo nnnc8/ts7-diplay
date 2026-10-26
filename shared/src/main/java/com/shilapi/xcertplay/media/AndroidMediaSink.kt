@@ -925,6 +925,7 @@ private class VideoDecoder(
     // frame's local time rather than the queue time.
     private val queuedPresentationUs = LongArray(64)
     private val queuedAtNanos = LongArray(64)
+    private val queuedArrivalNanos = LongArray(64)
     private val queuedPaced = BooleanArray(64)
     // Set on the paced frames queued just before a pause in the iPhone's frames: the decoder releases a
     // frame only once about two more are queued, so they waited for that pause, which no display delay
@@ -1008,10 +1009,11 @@ private class VideoDecoder(
     }
 
     fun submit(nalus: ByteArray, senderNanos: Long = 0L, arrivalNanos: Long = 0L) {
-        stats.onReceived(nalus.size)
+        val frameArrivalNs = arrivalNanos.takeIf { it > 0L } ?: System.nanoTime()
+        stats.onReceived(nalus.size, frameArrivalNs)
         liveReceived.incrementAndGet()
         // Pacing runs on the worker, in queue order: callbacks of a replaced stream may still deliver here.
-        queue.offer(VideoJob.Frame(nalus, senderNanos = senderNanos, arrivalNanos = arrivalNanos))
+        queue.offer(VideoJob.Frame(nalus, senderNanos = senderNanos, arrivalNanos = frameArrivalNs))
     }
 
     fun setSurface(surface: Surface?) {
@@ -1077,7 +1079,12 @@ private class VideoDecoder(
                             )
                             if (overloaded) {
                                 recover("video backlog kept growing or exceeded hard limit")
-                            } else feed(job.nalus, job.receivedNs, localTimeOf(job))
+                            } else feed(
+                                job.nalus,
+                                job.receivedNs,
+                                localTimeOf(job),
+                                job.arrivalNanos.takeIf { it > 0L } ?: job.receivedNs,
+                            )
                         }
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
                         is VideoJob.DetachSurface -> detach(job.request)
@@ -1548,7 +1555,12 @@ private class VideoDecoder(
         lastConfig?.let(::configureDecoder)
     }
 
-    private fun feed(received: ByteArray, receivedNs: Long, presentNs: Long = 0L) {
+    private fun feed(
+        received: ByteArray,
+        receivedNs: Long,
+        presentNs: Long = 0L,
+        arrivalNs: Long = receivedNs,
+    ) {
         val config = lastConfig ?: return
         val nalus = if (lowDelaySpsActive && config.codec == VideoCodec.H264) lowDelayFrame(received) ?: return
         else received
@@ -1604,6 +1616,7 @@ private class VideoDecoder(
                 lastQueuedNanos = queuedNow
                 queuedPresentationUs[queuedSlot] = presentationUs
                 queuedAtNanos[queuedSlot] = queuedNow
+                queuedArrivalNanos[queuedSlot] = arrivalNs
                 queuedPaced[queuedSlot] = presentNs > 0
                 queuedBeforePause[queuedSlot] = false
                 if (presentNs > 0) {
@@ -1690,6 +1703,7 @@ private class VideoDecoder(
                 val now = System.nanoTime()
                 val slot = queuedSlotOf(info.presentationTimeUs)
                 val queued = if (slot >= 0) queuedAtNanos[slot] else 0L
+                val arrived = if (slot >= 0) queuedArrivalNanos[slot] else 0L
                 val heldOverGap = queued in 1 until resumedAtNanos
                 if (queued > 0 && !heldOverGap) {
                     stats.onDecodeLatency(now - queued)
@@ -1705,13 +1719,17 @@ private class VideoDecoder(
                     stats.onPacingDelay(delay.nanos)
                     localNs + delay.nanos
                 } else 0L
-                if (targetNs - now in 1..MAX_PACING_AHEAD_NS) {
+                val surfaceSubmittedAtNs = if (targetNs - now in 1..MAX_PACING_AHEAD_NS) {
                     codec.releaseOutputBuffer(index, targetNs)
+                    if (shown) System.nanoTime() else 0L
                 } else {
                     if (shown && delay != null && !heldOverGap && !pauseHeld) stats.onLate()
                     codec.releaseOutputBuffer(index, render)
+                    if (shown) System.nanoTime() else 0L
                 }
+                if (arrived > 0L) stats.onFrameDecoded(arrived, now)
                 if (shown) {
+                    stats.onFrameSubmittedToSurface(now, surfaceSubmittedAtNs)
                     stats.onRendered()
                     liveRendered.incrementAndGet()
                 }

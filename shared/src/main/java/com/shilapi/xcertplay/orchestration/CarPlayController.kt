@@ -544,11 +544,11 @@ class CarPlayController(
         }
     }
 
-    fun sendTouch(contacts: List<AirPlayContact>): Boolean {
+    fun sendTouch(contacts: List<AirPlayContact>, touchEventAtNs: Long = 0L): Boolean {
         if (closed) return false
         val session = activeSession ?: return false
         return try {
-            touchExecutor.execute { session.sendTouch(contacts) }
+            touchExecutor.execute { session.sendTouch(contacts, touchEventAtNs) }
             true
         } catch (_: Exception) {
             false
