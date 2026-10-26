@@ -97,6 +97,10 @@ object AmbientAlbumPalette {
     }
 }
 
+/** Keeps the cover bitmap for MediaSession while skipping album sampling on TS7. */
+fun ambientAlbumColorForHeadUnit(ts7: Boolean, sample: () -> Int?): Int? =
+    if (ts7) null else sample()
+
 internal fun ambientColorPalette(source: AmbientColorSource, selected: List<Int>, albumColor: Int?): List<Int> {
     if (source == AmbientColorSource.SELECTED) return normalizeAmbientPalette(selected)
     val center = albumColor?.takeIf { it in 1..31 } ?: return (1..31).toList()

@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AmbientAlbumPaletteTest {
+    @Test fun ts7SkipsAlbumColorSampling() {
+        var sampled = false
+        val color = ambientAlbumColorForHeadUnit(ts7 = true) {
+            sampled = true
+            1
+        }
+        assertNull(color)
+        assertFalse(sampled)
+
+        assertEquals(1, ambientAlbumColorForHeadUnit(ts7 = false) { 1 })
+    }
+
     @Test fun coverSelectionDoesNotChangePcmOrPlayedEnergy() {
         val pcm = byteArrayOf(0, 64, 0, 32, 0, -32, 0, -64)
         val original = pcm.copyOf()

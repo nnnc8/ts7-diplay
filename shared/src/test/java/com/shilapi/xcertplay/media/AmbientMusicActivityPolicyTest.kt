@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AmbientMusicActivityPolicyTest {
+    @Test fun ts7DoesNotOpenAmbientSinkOrAnalyzePcm() {
+        assertFalse(shouldOpenAmbientSink(hasContext = true, ts7 = true))
+        assertFalse(shouldOpenAmbientSink(hasContext = false, ts7 = false))
+        assertTrue(shouldOpenAmbientSink(hasContext = true, ts7 = false))
+        assertFalse(shouldAnalyzeAmbientPcm(rendererToken = 1L, ts7 = true))
+        assertFalse(shouldAnalyzeAmbientPcm(rendererToken = 0L, ts7 = false))
+        assertTrue(shouldAnalyzeAmbientPcm(rendererToken = 1L, ts7 = false))
+    }
+
     @Test fun onlyMusicStreamsOwnTheLampEvenWhenGuidanceUsesTheMediaBus() {
         assertTrue(AmbientMusicActivityPolicy.acceptsAudio("media", 102))
         assertTrue(AmbientMusicActivityPolicy.acceptsAudio("", 102))

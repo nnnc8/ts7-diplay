@@ -5,6 +5,7 @@ import android.util.Log
 import com.shilapi.xcertplay.hud.BydAmbientLightClient
 import com.shilapi.xcertplay.hud.BydAmbientLightPolicy
 import com.shilapi.xcertplay.hud.BydCarMusicRhythm
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -82,14 +83,15 @@ object AmbientMusicController {
     }
 
     @Synchronized fun openSink(context: Context?): Long {
-        if (context == null) return 0L
+        if (!shouldOpenAmbientSink(context != null, Ts7HeadUnit.detected)) return 0L
+        val appContext = requireNotNull(context).applicationContext
         val token = sequence.incrementAndGet()
         activeSink.set(token)
         activeRenderer.set(0L)
         executor.execute {
             if (activeSink.get() != token) return@execute
-            this.context = context.applicationContext
-            settings = AmbientMusicSettings.load(context)
+            this.context = appContext
+            settings = AmbientMusicSettings.load(appContext)
             resetColors()
             brightnessEnvelope = AmbientMusicBrightness(settings.speed)
             allowed = settings.enabled; envelope = null; playback = null
@@ -116,11 +118,13 @@ object AmbientMusicController {
 
     private fun feeding() = settings.carRhythm && settings.carRhythmFeed
 
-    internal fun wantsPcm(token: Long): Boolean = token != 0L && token == activeRenderer.get() &&
+    internal fun wantsPcm(token: Long): Boolean = shouldAnalyzeAmbientPcm(token, Ts7HeadUnit.detected) &&
+        token == activeRenderer.get() &&
         ((settings.enabled && settings.music) || feeding())
 
     /** Whether the played PCM should also be reduced to the 16 rhythm bands for the car. */
-    internal fun wantsBands(token: Long): Boolean = token != 0L && token == activeRenderer.get() && feeding()
+    internal fun wantsBands(token: Long): Boolean = shouldAnalyzeAmbientPcm(token, Ts7HeadUnit.detected) &&
+        token == activeRenderer.get() && feeding()
 
     /** Binds phone playback callbacks to the current CarPlay media owner. */
     @Synchronized fun claimPlaybackOwner(owner: Any) {
@@ -187,6 +191,7 @@ object AmbientMusicController {
     }
 
     fun settingsChanged(context: Context) {
+        if (Ts7HeadUnit.detected) return
         executor.execute {
             this.context = context.applicationContext
             settings = AmbientMusicSettings.load(context)

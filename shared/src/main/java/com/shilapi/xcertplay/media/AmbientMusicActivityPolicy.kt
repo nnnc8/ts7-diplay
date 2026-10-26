@@ -46,3 +46,8 @@ internal object AmbientMusicActivityPolicy {
         }
     }
 }
+
+/** Ambient-light control is unavailable on TS7 and must not load its settings or analyze PCM there. */
+internal fun shouldOpenAmbientSink(hasContext: Boolean, ts7: Boolean): Boolean = hasContext && !ts7
+
+internal fun shouldAnalyzeAmbientPcm(rendererToken: Long, ts7: Boolean): Boolean = rendererToken != 0L && !ts7

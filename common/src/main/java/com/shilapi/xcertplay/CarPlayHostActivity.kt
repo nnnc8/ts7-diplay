@@ -707,8 +707,19 @@ class CarPlayHostActivity : ComponentActivity() {
     private val expireOldLogLines = Runnable { refreshLogView(System.currentTimeMillis()) }
     private val refreshTurnOverlay = object : Runnable {
         override fun run() {
+            val ts7 = com.shilapi.xcertplay.network.Ts7HeadUnit.detected
+            if (ts7 && (!hostAppearanceResumed ||
+                    !shouldRefreshTurnOverlay(ts7, CenterMapOverlay.shown, sidePanelShown))) return
             com.shilapi.xcertplay.hud.BydNavigationOutputs.refreshTurnOverlay()
             mainHandler.postDelayed(this, 1_000L)
+        }
+    }
+
+    private fun scheduleTurnOverlayRefresh() {
+        mainHandler.removeCallbacks(refreshTurnOverlay)
+        val ts7 = com.shilapi.xcertplay.network.Ts7HeadUnit.detected
+        if (hostAppearanceResumed && shouldRefreshTurnOverlay(ts7, CenterMapOverlay.shown, sidePanelShown)) {
+            mainHandler.post(refreshTurnOverlay)
         }
     }
     // Some head units (e.g. BYD DiLink) update resources.configuration for day/night
@@ -1219,8 +1230,7 @@ class CarPlayHostActivity : ComponentActivity() {
         ensureClusterPresentation()
         AirPlayPersistence.overlaySettingsListener = { runOnUiThread { applyClusterTurnOverlay() } }
         com.shilapi.xcertplay.hud.BydNavigationOutputs.setTurnOverlayListener(clusterTurnOverlayListener)
-        mainHandler.removeCallbacks(refreshTurnOverlay)
-        mainHandler.post(refreshTurnOverlay)
+        scheduleTurnOverlayRefresh()
         var systemBarsChanged = false
         if (!menuOpen) {
             val savedHideTopBar = AirPlayPersistence.loadHideTopBar(this)
@@ -2652,6 +2662,7 @@ class CarPlayHostActivity : ComponentActivity() {
         areas.use(target)
         sidePanelShown = show
         sidePanel?.visibility = if (show) View.VISIBLE else View.GONE
+        scheduleTurnOverlayRefresh()
         mainHandler.removeCallbacks(sidePanelTick)
         if (show) startSidePanelTyres() else com.shilapi.xcertplay.hud.BydTyreStatus.stop()
         if (show) sidePanelTick.run()
@@ -2662,6 +2673,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun resetSidePanel() {
         sidePanelShown = false
         sidePanel?.visibility = View.GONE
+        scheduleTurnOverlayRefresh()
         mainHandler.removeCallbacks(sidePanelTick)
         com.shilapi.xcertplay.hud.BydTyreStatus.stop()
         videoView?.let { placeSidePanelTab(it.width, it.height) }
