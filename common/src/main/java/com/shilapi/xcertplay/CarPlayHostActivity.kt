@@ -510,7 +510,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var autoStartOnBoot = false
     private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
     private var model = AirPlayPersistence.DEFAULT_MODEL
-    private var oemLabel = AirPlayPersistence.DEFAULT_OEM_LABEL
+    private var oemLabel = AirPlayPersistence.defaultOemLabel(com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
     private var fps = AirPlayDisplaySettings.DEFAULT_FPS
     private var widthPhysicalMm = AirPlayDisplaySettings.DEFAULT_WIDTH_PHYSICAL_MM
     private var physicalSizeBasis = AirPlayDisplaySettings.DEFAULT_PHYSICAL_SIZE_BASIS
@@ -5062,7 +5062,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun defaultAirPlayIconBytes(): ByteArray =
         // Shown in CarPlay's app list as the "back to the car" button.
-        resources.openRawResource(R.raw.ic_car_home).use { it.readBytes() }
+        resources.openRawResource(
+            AirPlayPersistence.defaultAirPlayIconResource(com.shilapi.xcertplay.network.Ts7HeadUnit.detected),
+        ).use { it.readBytes() }
 
     private fun updateAirPlayIconPreview() {
         val preview = iconPreviewView ?: return

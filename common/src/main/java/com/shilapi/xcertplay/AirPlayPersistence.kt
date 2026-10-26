@@ -13,6 +13,7 @@ import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.SafeAreaCodec
 import com.shilapi.xcertplay.airplay.SafeAreaRect
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.MfiTarget
@@ -140,6 +141,9 @@ object AirPlayPersistence {
     const val DEFAULT_MANUFACTURER = "DiPlay"
     const val DEFAULT_MODEL = "DiPlay"
     const val DEFAULT_OEM_LABEL = "BYD"
+
+    /** The TS7 is a Toyota head unit: its "back to the car" button says Toyota, not BYD. */
+    const val DEFAULT_TS7_OEM_LABEL = "Toyota"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadAmbientDelaySeconds(context: Context): Int =
@@ -632,11 +636,24 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadOemLabel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
+    fun loadOemLabel(context: Context): String = loadOemLabel(context, Ts7HeadUnit.detected)
+
+    /** On the TS7 a missing, blank or still-`BYD` label becomes Toyota; a driver's own text stays. */
+    internal fun loadOemLabel(context: Context, ts7: Boolean): String {
+        val default = defaultOemLabel(ts7)
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_OEM_LABEL, default)
             // iOS hides the car icon without a label.
-            .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+            .orEmpty().ifBlank { default }
+            .let { if (ts7 && it == DEFAULT_OEM_LABEL) default else it }
+    }
+
+    internal fun defaultOemLabel(ts7: Boolean): String =
+        if (ts7) DEFAULT_TS7_OEM_LABEL else DEFAULT_OEM_LABEL
+
+    /** The packaged "back to the car" icon: the Toyota logo on the TS7, the stock icon elsewhere. */
+    internal fun defaultAirPlayIconResource(ts7: Boolean): Int =
+        if (ts7) R.raw.ic_car_home_toyota else R.raw.ic_car_home
 
     fun saveOemLabel(context: Context, oemLabel: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
