@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import android.content.Context
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 
 object AmbientMusicSettings {
     private const val PREFS = "ambient_music"
@@ -13,7 +14,10 @@ object AmbientMusicSettings {
         val carRhythm: Boolean = false,
         // Sends the played music's spectrum to the car for that rhythm, where the car makes none of its own.
         val carRhythmFeed: Boolean = false)
-    fun load(context: Context): Values {
+    fun load(context: Context): Values = load(context, Ts7HeadUnit.detected)
+
+    internal fun load(context: Context, ts7: Boolean): Values {
+        if (ts7) return Values(enabled = false, music = false, carRhythm = false, carRhythmFeed = false)
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         fun boolean(key: String, fallback: Boolean) = runCatching { p.getBoolean(key, fallback) }.getOrDefault(fallback)
         fun integer(key: String, fallback: Int) = runCatching { p.getInt(key, fallback) }.getOrDefault(fallback)

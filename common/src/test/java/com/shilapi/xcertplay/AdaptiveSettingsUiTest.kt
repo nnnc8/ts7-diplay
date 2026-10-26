@@ -112,6 +112,7 @@ class AdaptiveSettingsUiTest {
         AppAppearanceRuntime.resetForTest()
         context.getSharedPreferences("diplay", 0).edit().clear().commit()
         context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        context.getSharedPreferences("ambient_music", 0).edit().clear().commit()
     }
 
     @Test fun compactSettingsOpenOnAnEverydayDriverOverview() {
@@ -760,6 +761,58 @@ class AdaptiveSettingsUiTest {
             assertFalse(text(it), text(it) in display)
         }
         assertFalse(display.any { it.startsWith(text(R.string.settings_h264_frame_end_marker) + " · ") })
+    }
+
+    @Test fun ts7SettingsHideBydControlsFromPagesAndSearchButKeepTheFloatingMap() {
+        AirPlayPersistence.saveClusterMapEnabled(context, true)
+        AirPlayPersistence.saveCenterMapOverlay(context, true)
+        AirPlayPersistence.saveCenterMapAutoHide(context, true)
+        AirPlayPersistence.saveClusterSpeedometerEnabled(context, true)
+        AirPlayPersistence.saveLauncherMapSharing(context, true)
+        com.shilapi.xcertplay.media.AmbientMusicSettings.save(
+            context,
+            com.shilapi.xcertplay.media.AmbientMusicSettings.Values(enabled = true, carRhythm = true),
+        )
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsTs7Override", true)
+        ReflectionHelpers.setField(screen, "bydVehicleAdvancedExpanded", true)
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.ADVANCED))
+
+        val visible = texts(screen).map { it.text.toString() }
+        assertTrue(screen.getString(R.string.carplay_map_on_instrument_cluster_experimental) in visible)
+        assertTrue(screen.getString(R.string.center_map_card) in visible)
+        assertTrue(screen.getString(R.string.center_map_auto_hide) in visible)
+        assertTrue(screen.getString(R.string.settings_cluster_music) in visible)
+        listOf(
+            R.string.settings_ambient_title,
+            R.string.settings_cluster_speedometer,
+            R.string.launcher_map_sharing,
+            R.string.center_map_follows_dashboard,
+            R.string.advanced_vehicle_data,
+        ).forEach { assertFalse(screen.getString(it), screen.getString(it) in visible) }
+
+        val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
+        val indexedTitles = index.map { ReflectionHelpers.getField<String>(it, "title") }
+        assertTrue(screen.getString(R.string.center_map_card) in indexedTitles)
+        listOf(
+            R.string.settings_ambient_title,
+            R.string.navigation_on_hud_and_instrument_cluster,
+            R.string.settings_cluster_speedometer,
+            R.string.launcher_map_sharing,
+            R.string.center_map_follows_dashboard,
+            R.string.advanced_vehicle_data,
+        ).forEach { hidden ->
+            val title = screen.getString(hidden)
+            assertFalse("Hidden setting was indexed: $title", title in indexedTitles)
+            val results = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "searchSettings",
+                ReflectionHelpers.ClassParameter(List::class.java, index),
+                ReflectionHelpers.ClassParameter(String::class.java, title))
+            assertTrue("Search returned hidden setting: $title", results.none {
+                ReflectionHelpers.getField<String>(it, "title") == title
+            })
+        }
     }
 
     @Test fun navigationAttenuationSliderSavesAndUpdatesActiveAudioWithoutReconnect() {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
+import com.shilapi.xcertplay.transport.EvChargingConnectors
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,6 +45,8 @@ class BydOptionalOutputSettingsTest {
             .putBoolean("carplay_call_controls_experimental", true)
             .putBoolean("fce_cluster_guidance_experimental", true)
             .putBoolean("legacy_vehicle_probe", true)
+            .putInt("low_charge_percent", 25)
+            .putString("charging_connectors", EvChargingConnectors.entries.last().name)
             .putString("oem_cluster_hold", BydOemClusterHold.COMPONENT.name)
             .putBoolean("phone_audio_route_experimental", true)
             .commit()
@@ -61,12 +64,16 @@ class BydOptionalOutputSettingsTest {
         assertFalse(BydOutputSettings.fceCluster(app, ts7 = true))
         assertFalse(BydOutputSettings.legacyVehicleProbe(app, ts7 = true))
         assertEquals(BydOemClusterHold.OFF, BydOutputSettings.oemClusterHold(app, ts7 = true))
+        assertEquals(BydOutputSettings.DEFAULT_LOW_CHARGE_PERCENT, BydOutputSettings.lowChargePercent(app, ts7 = true))
+        assertEquals(EvChargingConnectors.CCS2_TYPE2, BydOutputSettings.chargingConnectors(app, ts7 = true))
         assertFalse(BydOutputSettings.shouldStartBydNavigationOutputs(ts7 = true))
         assertTrue(BydOutputSettings.phoneAudioRoute(app))
 
         assertTrue(BydOutputSettings.enabled(app, ts7 = false))
         assertTrue(BydOutputSettings.clusterSong(app, ts7 = false))
         assertTrue(BydOutputSettings.carPlayCalls(app, ts7 = false))
+        assertEquals(25, BydOutputSettings.lowChargePercent(app, ts7 = false))
+        assertEquals(EvChargingConnectors.entries.last(), BydOutputSettings.chargingConnectors(app, ts7 = false))
         assertTrue(BydOutputSettings.shouldStartBydNavigationOutputs(ts7 = false))
     }
 

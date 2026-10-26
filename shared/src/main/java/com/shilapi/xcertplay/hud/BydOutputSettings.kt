@@ -62,7 +62,11 @@ object BydOutputSettings {
 
     /** The charging inlets the iPhone is told about; applies on the next connection. */
     fun chargingConnectors(context: Context): EvChargingConnectors =
-        prefs(context).getString(KEY_CHARGING_CONNECTORS, null)
+        chargingConnectors(context, Ts7HeadUnit.detected)
+
+    internal fun chargingConnectors(context: Context, ts7: Boolean): EvChargingConnectors = if (ts7) {
+        EvChargingConnectors.CCS2_TYPE2
+    } else prefs(context).getString(KEY_CHARGING_CONNECTORS, null)
             ?.let { saved -> EvChargingConnectors.entries.firstOrNull { it.name == saved } }
             ?: EvChargingConnectors.CCS2_TYPE2
 
@@ -190,7 +194,10 @@ object BydOutputSettings {
         prefs(context).edit().putString(KEY_OEM_CLUSTER_HOLD, hold.name).apply()
 
     /** At or below this charge the iPhone gets the low-range warning. */
-    fun lowChargePercent(context: Context): Int = prefs(context).getInt(KEY_LOW_CHARGE_PERCENT, DEFAULT_LOW_CHARGE_PERCENT)
+    fun lowChargePercent(context: Context): Int = lowChargePercent(context, Ts7HeadUnit.detected)
+
+    internal fun lowChargePercent(context: Context, ts7: Boolean): Int = if (ts7) DEFAULT_LOW_CHARGE_PERCENT
+        else prefs(context).getInt(KEY_LOW_CHARGE_PERCENT, DEFAULT_LOW_CHARGE_PERCENT)
 
     fun setLowChargePercent(context: Context, percent: Int) =
         prefs(context).edit().putInt(KEY_LOW_CHARGE_PERCENT, percent).apply()

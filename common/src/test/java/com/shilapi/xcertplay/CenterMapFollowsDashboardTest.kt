@@ -28,4 +28,11 @@ class CenterMapFollowsDashboardTest {
         AirPlayPersistence.saveCenterMapFollowsDashboard(context, true)
         assertTrue(AirPlayPersistence.loadCenterMapFollowsDashboard(context))
     }
+
+    @Test fun ts7DoesNotRequireTheHiddenDashboardSyncSettingToShowTheFloatingMap() {
+        assertFalse(AirPlayPersistence.loadCenterMapFollowsDashboard(context, ts7 = true))
+        assertTrue(AirPlayPersistence.centerMapAllowedByDashboardSyncSetting(ts7 = true, followsDashboard = false))
+        assertFalse(AirPlayPersistence.centerMapAllowedByDashboardSyncSetting(ts7 = false, followsDashboard = false))
+        assertTrue(AirPlayPersistence.centerMapAllowedByDashboardSyncSetting(ts7 = false, followsDashboard = true))
+    }
 }

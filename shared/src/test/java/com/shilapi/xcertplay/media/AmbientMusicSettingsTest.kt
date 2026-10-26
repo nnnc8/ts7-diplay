@@ -75,4 +75,25 @@ class AmbientMusicSettingsTest {
         prefs.edit().putString("idle", "UNKNOWN").commit()
         assertEquals(AmbientIdleBehavior.STEADY, AmbientMusicSettings.load(context).idle)
     }
+
+    @Test fun ts7TreatsSavedAmbientSettingsAsDisabledWithoutChangingOtherHeadUnits() {
+        AmbientMusicSettings.save(context, AmbientMusicSettings.Values(
+            enabled = true,
+            music = true,
+            carRhythm = true,
+            carRhythmFeed = true,
+        ))
+
+        val ts7 = AmbientMusicSettings.load(context, ts7 = true)
+        assertFalse(ts7.enabled)
+        assertFalse(ts7.music)
+        assertFalse(ts7.carRhythm)
+        assertFalse(ts7.carRhythmFeed)
+
+        val otherHeadUnit = AmbientMusicSettings.load(context, ts7 = false)
+        assertTrue(otherHeadUnit.enabled)
+        assertTrue(otherHeadUnit.music)
+        assertTrue(otherHeadUnit.carRhythm)
+        assertTrue(otherHeadUnit.carRhythmFeed)
+    }
 }

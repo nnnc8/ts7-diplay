@@ -579,6 +579,9 @@ object AirPlayPersistence {
     }
 
     fun loadBtSuspendDelaySeconds(context: Context): Int =
+        loadBtSuspendDelaySeconds(context, Ts7HeadUnit.detected)
+
+    internal fun loadBtSuspendDelaySeconds(context: Context, ts7: Boolean): Int = if (ts7) 10 else
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_BT_SUSPEND_DELAY, 10).let { if (it in listOf(5, 10, 15, 30)) it else 10 }
 
@@ -922,7 +925,9 @@ object AirPlayPersistence {
     fun loadClusterMapEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MAP, false)
 
-    fun loadAdbClusterEnabled(context: Context): Boolean = loadClusterMapEnabled(context) &&
+    fun loadAdbClusterEnabled(context: Context): Boolean = loadAdbClusterEnabled(context, Ts7HeadUnit.detected)
+
+    internal fun loadAdbClusterEnabled(context: Context, ts7: Boolean): Boolean = !ts7 && loadClusterMapEnabled(context) &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ADB_CLUSTER_ACTIVITY, false)
 
     fun saveAdbClusterEnabled(context: Context, enabled: Boolean) {
@@ -935,9 +940,14 @@ object AirPlayPersistence {
 
     /** Either DiLink 4 cluster route, ADB video or the Platform 21 task; on DiLink 3 both stop the dashboard map (#722). */
     fun loadDiLink4ClusterRouteEnabled(context: Context): Boolean =
-        loadAdbClusterEnabled(context) || loadLegacyClusterEnabled(context)
+        loadDiLink4ClusterRouteEnabled(context, Ts7HeadUnit.detected)
 
-    fun loadLegacyClusterEnabled(context: Context): Boolean = loadClusterMapEnabled(context) &&
+    internal fun loadDiLink4ClusterRouteEnabled(context: Context, ts7: Boolean): Boolean = !ts7 &&
+        (loadAdbClusterEnabled(context, ts7 = false) || loadLegacyClusterEnabled(context, ts7 = false))
+
+    fun loadLegacyClusterEnabled(context: Context): Boolean = loadLegacyClusterEnabled(context, Ts7HeadUnit.detected)
+
+    internal fun loadLegacyClusterEnabled(context: Context, ts7: Boolean): Boolean = !ts7 && loadClusterMapEnabled(context) &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("platform21_cluster_enabled", false)
 
     fun saveLegacyClusterEnabled(context: Context, enabled: Boolean) {
@@ -964,7 +974,9 @@ object AirPlayPersistence {
     }
 
     /** Other launchers may show the live dashboard map in their own screen (MapEmbedService). */
-    fun loadLauncherMapSharing(context: Context): Boolean =
+    fun loadLauncherMapSharing(context: Context): Boolean = loadLauncherMapSharing(context, Ts7HeadUnit.detected)
+
+    internal fun loadLauncherMapSharing(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LAUNCHER_MAP_SHARING, false)
 
     fun saveLauncherMapSharing(context: Context, enabled: Boolean) {
@@ -991,6 +1003,9 @@ object AirPlayPersistence {
     }
 
     fun loadClusterSpeedometerEnabled(context: Context): Boolean =
+        loadClusterSpeedometerEnabled(context, Ts7HeadUnit.detected)
+
+    internal fun loadClusterSpeedometerEnabled(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("cluster_speedometer_enabled", false)
 
     fun saveClusterSpeedometerEnabled(context: Context, enabled: Boolean) {
@@ -1066,9 +1081,16 @@ object AirPlayPersistence {
     }
 
     fun loadClusterContent(context: Context): CarPlayClusterDisplay.Content =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CLUSTER_CONTENT, null)
+        loadClusterContent(context, Ts7HeadUnit.detected)
+
+    internal fun loadClusterContent(context: Context, ts7: Boolean): CarPlayClusterDisplay.Content {
+        if (ts7) return CarPlayClusterDisplay.Content.MAP
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CLUSTER_CONTENT, null)
             ?.let { name -> CarPlayClusterDisplay.Content.entries.firstOrNull { it.name == name } }
-            ?: if (AdbClusterRouter.enabled(context) && !loadLegacyClusterEnabled(context)) CarPlayClusterDisplay.Content.INSTRUMENTS else CarPlayClusterDisplay.Content.MAP
+            ?: if (AdbClusterRouter.enabled(context) && !loadLegacyClusterEnabled(context, ts7 = false)) {
+                CarPlayClusterDisplay.Content.INSTRUMENTS
+            } else CarPlayClusterDisplay.Content.MAP
+    }
 
     fun saveClusterContent(context: Context, content: CarPlayClusterDisplay.Content) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_CLUSTER_CONTENT, content.name).apply()
@@ -1086,8 +1108,14 @@ object AirPlayPersistence {
     }
 
     fun loadCenterMapFollowsDashboard(context: Context): Boolean =
+        loadCenterMapFollowsDashboard(context, Ts7HeadUnit.detected)
+
+    internal fun loadCenterMapFollowsDashboard(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_CENTER_MAP_FOLLOWS_DASHBOARD, true)
+
+    internal fun centerMapAllowedByDashboardSyncSetting(ts7: Boolean, followsDashboard: Boolean): Boolean =
+        ts7 || followsDashboard
 
     fun saveCenterMapFollowsDashboard(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -1345,7 +1373,11 @@ object AirPlayPersistence {
         overlaySettingsListener?.invoke()
     }
 
-    fun loadClusterMapScalePercent(context: Context): Int = CarPlayClusterDisplay.STREAM_SCALE_PERCENT.let { default ->
+    fun loadClusterMapScalePercent(context: Context): Int =
+        loadClusterMapScalePercent(context, Ts7HeadUnit.detected)
+
+    internal fun loadClusterMapScalePercent(context: Context, ts7: Boolean): Int = CarPlayClusterDisplay.STREAM_SCALE_PERCENT.let { default ->
+        if (ts7) return@let default
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_CLUSTER_MAP_SCALE, default)
             .takeIf { it in CarPlayClusterDisplay.scalePresets } ?: default
     }
@@ -1374,7 +1406,9 @@ object AirPlayPersistence {
     }
 
     /** 0 off, 1 always small-window positions, 2 auto from the cluster. Default off. */
-    fun loadClusterSmallWindowMode(context: Context): Int =
+    fun loadClusterSmallWindowMode(context: Context): Int = loadClusterSmallWindowMode(context, Ts7HeadUnit.detected)
+
+    internal fun loadClusterSmallWindowMode(context: Context, ts7: Boolean): Int = if (ts7) 0 else
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_CLUSTER_SMALL_WINDOW_MODE, 0).coerceIn(0, 2)
 
@@ -1404,7 +1438,9 @@ object AirPlayPersistence {
     }
 
     // Cluster mapping has its own key; never reuse the main display mapping at the same resolution.
-    fun loadClusterSafeAreaRect(context: Context): SafeAreaRect? =
+    fun loadClusterSafeAreaRect(context: Context): SafeAreaRect? = loadClusterSafeAreaRect(context, Ts7HeadUnit.detected)
+
+    internal fun loadClusterSafeAreaRect(context: Context, ts7: Boolean): SafeAreaRect? = if (ts7) null else
         SafeAreaCodec.decode(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("cluster_safe_area_1920x720", null))?.clampTo(1920, 720)
 

@@ -79,6 +79,7 @@ import com.shilapi.xcertplay.network.CarHotspotConfigWrite
 import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.network.CarHotspotTethering
 import com.shilapi.xcertplay.network.HotspotCredentials
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.orchestration.ManualHotspotProvisioning
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
@@ -163,6 +164,22 @@ internal object SettingsInformationArchitecture {
             SettingsSection.AMBIENT_LIGHTING,
         ),
     )
+
+    fun visibleSections(sections: Set<SettingsSection>, ts7: Boolean): Set<SettingsSection> =
+        if (ts7) sections - setOf(SettingsSection.BYD_NAVIGATION, SettingsSection.AMBIENT_LIGHTING) else sections
+
+    fun visibleSections(category: SettingsCategory, ts7: Boolean): Set<SettingsSection> =
+        visibleSections(sectionsByCategory.getValue(category), ts7)
+
+    fun visibleCategories(
+        ts7: Boolean,
+        categorySections: Map<SettingsCategory, Set<SettingsSection>> = sectionsByCategory,
+    ): List<SettingsCategory> {
+        val categoriesWithoutSections = setOf(SettingsCategory.OVERVIEW, SettingsCategory.LANGUAGE, SettingsCategory.ABOUT)
+        return SettingsCategory.entries.filter { category ->
+            category in categoriesWithoutSections || visibleSections(categorySections[category].orEmpty(), ts7).isNotEmpty()
+        }
+    }
 }
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
@@ -183,6 +200,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     internal var carRhythmSupportCheck: (Context) -> java.util.concurrent.CompletableFuture<Boolean> =
         com.shilapi.xcertplay.hud.BydCarMusicRhythm::checkSupport
     private var settingsCategory = SettingsCategory.OVERVIEW
+    internal var settingsTs7Override: Boolean? = null
     private var connectionSettingsReturnCategory: SettingsCategory? = null
     private var setupStep = SetupGuide.STEP_CAR
     private var setupFromSettings = false
@@ -1081,9 +1099,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun settingsRail(): LinearLayout = column().apply {
         background = rounded(SURFACE, BORDER)
         setPadding(dp(12), dp(12), dp(12), dp(12))
-        SettingsCategory.entries.forEach { category ->
+        val categories = visibleSettingsCategories()
+        categories.forEachIndexed { index, category ->
             addView(settingsRailDestination(category), matchButton(0, 52).apply {
-                bottomMargin = if (category == SettingsCategory.entries.last()) 0 else dp(8)
+                bottomMargin = if (index == categories.lastIndex) 0 else dp(8)
             })
         }
     }
@@ -1173,6 +1192,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
     }
 
+    private fun isTs7SettingsMode(): Boolean = settingsTs7Override ?: Ts7HeadUnit.detected
+
+    private fun visibleSettingsCategories(): List<SettingsCategory> =
+        SettingsInformationArchitecture.visibleCategories(isTs7SettingsMode())
+
     private fun settingsOverview(content: LinearLayout) {
         settingsPageTitle(content, getString(R.string.settings_overview), getString(R.string.settings_overview_subtitle))
         val readiness = card().apply {
@@ -1188,6 +1212,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             setPadding(0, 0, 0, dp(20))
         })
 
+        val visibleCategories = visibleSettingsCategories().toSet()
         val destinations = listOf(
             SettingsCategory.CONNECTION to R.string.settings_connection_summary,
             SettingsCategory.DISPLAY to R.string.settings_display_summary,
@@ -1198,7 +1223,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             SettingsCategory.ABOUT to R.string.about_diplay,
             SettingsCategory.DIAGNOSTICS to R.string.settings_diagnostics_summary,
             SettingsCategory.ADVANCED to R.string.settings_advanced_subtitle,
-        )
+        ).filter { it.first in visibleCategories }
         val categoryGap = dp(SETTINGS_BLOCK_GAP_DP)
         val twoColumns = isExpandedSettingsLayout && resources.configuration.let {
             SettingsLayoutPolicy.overviewHasTwoColumns(it.screenWidthDp, it.fontScale)
@@ -1301,6 +1326,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun openSettingsCategory(category: SettingsCategory) {
+        if (category !in visibleSettingsCategories()) return
         setSearchKeyboard(settingsSearchBox, false)
         clearSettingsSearchState()
         settingsCategory = category
@@ -1408,10 +1434,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     // ponytail: indexes the default state only; controls behind an expander (vehicle data) are not found.
     private fun buildSettingsSearchIndex(): List<SettingsSearchResult> {
         val selected = settingsCategory
+        val categories = visibleSettingsCategories()
         // Category names first, so a card that only links to a category cannot claim its name.
-        val index = SettingsCategory.entries.associateByTo(linkedMapOf(), ::settingsCategoryTitle)
+        val index = categories.associateByTo(linkedMapOf(), ::settingsCategoryTitle)
         try {
-            for (category in SettingsCategory.entries.filter { it != SettingsCategory.OVERVIEW } + SettingsCategory.OVERVIEW) {
+            for (category in categories.filter { it != SettingsCategory.OVERVIEW } + SettingsCategory.OVERVIEW) {
                 settingsCategory = category
                 val titles = mutableListOf(settingsCategoryTitle(category))
                 searchIndexSink = titles
@@ -1683,7 +1710,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         content.addView(caution, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(SETTINGS_BLOCK_GAP_DP) })
         renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.ADVANCED))
-        advancedVehicleDataSettings(content)
+        if (!isTs7SettingsMode()) advancedVehicleDataSettings(content)
     }
 
     private fun advancedVehicleDataSettings(content: LinearLayout) {
@@ -1705,7 +1732,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         sections: Set<SettingsSection>,
     ) {
         val previous = settingsSectionFilter
-        settingsSectionFilter = sections
+        settingsSectionFilter = SettingsInformationArchitecture.visibleSections(sections, isTs7SettingsMode())
         try {
             allSettingsSections(content)
         } finally {
@@ -2171,6 +2198,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // Cluster video does not require a BYD navigation broadcast receiver.
         filteredSection(content, SettingsSection.CLUSTER_MAP,
             getString(R.string.carplay_map_on_instrument_cluster_experimental), R.drawable.ic_dp_dashboard) { card ->
+            if (isTs7SettingsMode()) {
+                ts7FloatingMapSettings(card)
+                return@filteredSection
+            }
             // DiLink 3 makes its own dashboard display; either DiLink 4 route stops that, so offer them only to
             // turn off, as the setup guide does (#722).
             val diLink3 = DiLinkGeneration.current(this) == DiLinkGeneration.DILINK_3
@@ -2475,7 +2506,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // FCE head units show this card for their cluster's navigation view, which has its own opt-in.
         val bydNavigation = BydOutputSettings.available(this)
-        if (bydNavigation || BydOutputSettings.fceClusterAvailable()) filteredSection(content, SettingsSection.BYD_NAVIGATION,
+        if (!isTs7SettingsMode() && (bydNavigation || BydOutputSettings.fceClusterAvailable())) filteredSection(content, SettingsSection.BYD_NAVIGATION,
             getString(R.string.byd_navigation), R.drawable.ic_dp_navigation) { card ->
             toggle(card, getString(R.string.navigation_on_hud_and_instrument_cluster),
                 getString(R.string.show_phone_navigation_arrows_distance_and_street_names_on),
@@ -4445,6 +4476,45 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             WheelZoomKeys.Action.CONSUME
         }
         return action != WheelZoomKeys.Action.PASS || super.dispatchKeyEvent(event)
+    }
+
+    /** Keep the second stream and floating home-screen map controls on the TS7. */
+    private fun ts7FloatingMapSettings(card: LinearLayout) {
+        reconnectingToggle(
+            card,
+            getString(R.string.carplay_map_on_instrument_cluster_experimental),
+            getString(R.string.shows_the_iphone_s_cluster_map_virtual_stream_description),
+            AirPlayPersistence.loadClusterMapEnabled(this),
+        ) {
+            AirPlayPersistence.saveClusterMapEnabled(this, it)
+            render()
+        }
+        if (!AirPlayPersistence.loadClusterMapEnabled(this)) return
+
+        // This overlay reads CarPlay music metadata and does not need BYD vehicle data.
+        clusterMusicControls(card)
+        toggle(card, getString(R.string.center_map_card), getString(R.string.center_map_card_virtual_description),
+            AirPlayPersistence.loadCenterMapOverlay(this)) {
+            AirPlayPersistence.saveCenterMapOverlay(this, it)
+            if (it && !CenterMapOverlay.permitted(this)) openOverlayPermission()
+            render()
+        }
+        if (!AirPlayPersistence.loadCenterMapOverlay(this)) return
+
+        toggle(card, getString(R.string.center_map_auto_hide), getString(R.string.center_map_auto_hide_description),
+            AirPlayPersistence.loadCenterMapAutoHide(this)) {
+            AirPlayPersistence.saveCenterMapAutoHide(this, it)
+        }
+        val overlayAllowed = CenterMapOverlay.permitted(this)
+        card.addView(label(if (overlayAllowed) getString(R.string.center_map_overlay_allowed)
+            else getString(R.string.center_map_overlay_missing, packageName), 14, if (overlayAllowed) MUTED else WARNING))
+        val usageAccess = HomeScreenMonitor.hasAccess(this)
+        card.addView(label(if (usageAccess) getString(R.string.center_map_auto_hide_active)
+            else getString(R.string.center_map_auto_hide_needed), 14, if (usageAccess) MUTED else WARNING))
+        if (!usageAccess) {
+            card.addView(button(getString(R.string.btn_auto_apply_permissions), false) { autoApplyPermissions() },
+                matchButton(8, 54))
+        }
     }
 
     /** The 0.2.9 Dashboard song setting, shown once: in the BYD navigation card, or under Advanced vehicle data. */
