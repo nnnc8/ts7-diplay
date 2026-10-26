@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
 import com.shilapi.xcertplay.airplay.AirPlayViewArea
 import kotlin.math.abs
@@ -195,7 +196,9 @@ object SplitScreenSettings {
     private const val PREFS = "diplay_split_screen"
     private const val KEY_ENABLED = "enabled"
 
-    fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
+    fun enabled(context: Context): Boolean = enabled(context, Ts7HeadUnit.detected)
+
+    internal fun enabled(context: Context, ts7: Boolean): Boolean = !ts7 && prefs(context).getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
 

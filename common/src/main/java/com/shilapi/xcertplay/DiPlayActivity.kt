@@ -170,6 +170,8 @@ internal object SettingsInformationArchitecture {
             SettingsSection.BYD_NAVIGATION,
             SettingsSection.AMBIENT_LIGHTING,
             SettingsSection.USB_CONNECTION,
+            SettingsSection.ADVANCED_MEDIA,
+            SettingsSection.NAVIGATION_WHEEL,
         ) else sections
 
     fun visibleSections(category: SettingsCategory, ts7: Boolean): Set<SettingsSection> =
@@ -1988,27 +1990,29 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         filteredSection(content, SettingsSection.EXPERIMENTAL_DISPLAY,
             getString(R.string.settings_experimental_display), R.drawable.ic_dp_display) { card ->
-            toggle(card, getString(R.string.settings_harman_fullscreen_experimental),
-                getString(R.string.settings_harman_fullscreen_experimental_description),
-                AirPlayPersistence.loadHarmanFullscreen(this)) { enabled ->
-                AirPlayPersistence.saveHarmanFullscreen(this, enabled)
-            }
-            toggle(card, getString(R.string.split_screen_areas), getString(R.string.split_screen_areas_description),
-                SplitScreenSettings.enabled(this)) {
-                SplitScreenSettings.setEnabled(this, it)
-                markReconnectNeeded()
-            }
-            toggle(card, getString(R.string.carplay_rotation), getString(R.string.carplay_rotation_description),
-                CarPlayRotation.enabled(this)) {
-                CarPlayRotation.setEnabled(this, it)
-                render()
-                markReconnectNeeded()
+            if (!isTs7SettingsMode()) {
+                toggle(card, getString(R.string.settings_harman_fullscreen_experimental),
+                    getString(R.string.settings_harman_fullscreen_experimental_description),
+                    AirPlayPersistence.loadHarmanFullscreen(this)) { enabled ->
+                    AirPlayPersistence.saveHarmanFullscreen(this, enabled)
+                }
+                toggle(card, getString(R.string.split_screen_areas), getString(R.string.split_screen_areas_description),
+                    SplitScreenSettings.enabled(this)) {
+                    SplitScreenSettings.setEnabled(this, it)
+                    markReconnectNeeded()
+                }
+                toggle(card, getString(R.string.carplay_rotation), getString(R.string.carplay_rotation_description),
+                    CarPlayRotation.enabled(this)) {
+                    CarPlayRotation.setEnabled(this, it)
+                    render()
+                    markReconnectNeeded()
+                }
             }
             toggle(card, getString(R.string.side_panel), getString(R.string.side_panel_description), SidePanelSettings.enabled(this)) {
                 SidePanelSettings.setEnabled(this, it)
                 markReconnectNeeded()
             }
-            if (CarPlayRotation.enabled(this)) {
+            if (!isTs7SettingsMode() && CarPlayRotation.enabled(this)) {
                 val pictures = CarPlayRotation.Picture.entries
                 choice(card, getString(R.string.carplay_rotation_picture), listOf(
                     getString(R.string.carplay_rotation_smoother),

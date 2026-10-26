@@ -1,11 +1,15 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 
 /** Opt-in key routing shares the existing wheel accessibility service and authorization. */
 object NavigationWheelSettings {
     private fun prefs(context: Context) = context.getSharedPreferences("diplay_navigation_wheel", Context.MODE_PRIVATE)
-    fun enabled(context: Context): Boolean = prefs(context).getBoolean("enabled", false)
+    fun enabled(context: Context): Boolean = enabled(context, Ts7HeadUnit.detected)
+
+    internal fun enabled(context: Context, ts7: Boolean): Boolean = !ts7 &&
+        prefs(context).getBoolean("enabled", false)
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean("enabled", enabled).apply()
         WheelKeyService.settingsChanged()

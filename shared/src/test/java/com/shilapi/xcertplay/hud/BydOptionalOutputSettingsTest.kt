@@ -49,6 +49,7 @@ class BydOptionalOutputSettingsTest {
             .putString("charging_connectors", EvChargingConnectors.entries.last().name)
             .putString("oem_cluster_hold", BydOemClusterHold.COMPONENT.name)
             .putBoolean("phone_audio_route_experimental", true)
+            .putBoolean("phone_audio_route_apps_experimental", true)
             .commit()
 
         assertFalse(BydOutputSettings.enabled(app, ts7 = true))
@@ -67,13 +68,16 @@ class BydOptionalOutputSettingsTest {
         assertEquals(BydOutputSettings.DEFAULT_LOW_CHARGE_PERCENT, BydOutputSettings.lowChargePercent(app, ts7 = true))
         assertEquals(EvChargingConnectors.CCS2_TYPE2, BydOutputSettings.chargingConnectors(app, ts7 = true))
         assertFalse(BydOutputSettings.shouldStartBydNavigationOutputs(ts7 = true))
-        assertTrue(BydOutputSettings.phoneAudioRoute(app))
+        assertFalse(BydOutputSettings.phoneAudioRoute(app, ts7 = true))
+        assertFalse(BydOutputSettings.phoneAudioRouteApps(app, ts7 = true))
 
         assertTrue(BydOutputSettings.enabled(app, ts7 = false))
         assertTrue(BydOutputSettings.clusterSong(app, ts7 = false))
         assertTrue(BydOutputSettings.carPlayCalls(app, ts7 = false))
         assertEquals(25, BydOutputSettings.lowChargePercent(app, ts7 = false))
         assertEquals(EvChargingConnectors.entries.last(), BydOutputSettings.chargingConnectors(app, ts7 = false))
+        assertTrue(BydOutputSettings.phoneAudioRoute(app, ts7 = false))
+        assertTrue(BydOutputSettings.phoneAudioRouteApps(app, ts7 = false))
         assertTrue(BydOutputSettings.shouldStartBydNavigationOutputs(ts7 = false))
     }
 

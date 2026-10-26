@@ -127,13 +127,19 @@ object BydOutputSettings {
      * Hold a Telecom call during CarPlay calls so the car's own phone audio state, and its echo canceller,
      * handle the call. Replaces DiPlay's own canceller for those calls; applies at the next call.
      */
-    fun phoneAudioRoute(context: Context): Boolean = prefs(context).getBoolean(KEY_PHONE_AUDIO_ROUTE, false)
+    fun phoneAudioRoute(context: Context): Boolean = phoneAudioRoute(context, Ts7HeadUnit.detected)
+
+    internal fun phoneAudioRoute(context: Context, ts7: Boolean): Boolean = !ts7 &&
+        prefs(context).getBoolean(KEY_PHONE_AUDIO_ROUTE, false)
 
     fun setPhoneAudioRoute(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_PHONE_AUDIO_ROUTE, enabled).apply()
 
     /** The same for voice-over-IP calls in other apps; only calls that record from VOICE_COMMUNICATION qualify. */
-    fun phoneAudioRouteApps(context: Context): Boolean = prefs(context).getBoolean(KEY_PHONE_AUDIO_ROUTE_APPS, false)
+    fun phoneAudioRouteApps(context: Context): Boolean = phoneAudioRouteApps(context, Ts7HeadUnit.detected)
+
+    internal fun phoneAudioRouteApps(context: Context, ts7: Boolean): Boolean = !ts7 &&
+        prefs(context).getBoolean(KEY_PHONE_AUDIO_ROUTE_APPS, false)
 
     fun setPhoneAudioRouteApps(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_PHONE_AUDIO_ROUTE_APPS, enabled).apply()

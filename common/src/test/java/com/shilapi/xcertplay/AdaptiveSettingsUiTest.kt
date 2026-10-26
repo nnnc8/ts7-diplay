@@ -112,6 +112,7 @@ class AdaptiveSettingsUiTest {
         AppAppearanceRuntime.resetForTest()
         context.getSharedPreferences("diplay", 0).edit().clear().commit()
         context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        context.getSharedPreferences("diplay_side_panel", 0).edit().clear().commit()
         context.getSharedPreferences("ambient_music", 0).edit().clear().commit()
     }
 
@@ -944,6 +945,59 @@ class AdaptiveSettingsUiTest {
         visible = texts(screen).map { it.text.toString() }
         assertTrue(screen.getString(R.string.prefer_a_cable) in visible)
         assertTrue(screen.getString(R.string.connect_with_usb) in visible)
+    }
+
+    @Test fun ts7HidesAdvancedExperimentsButKeepsSidePanelAndLauncherBubble() {
+        SidePanelSettings.setEnabled(context, true)
+        AirPlayPersistence.saveLauncherBubble(context, true)
+        AirPlayPersistence.saveLauncherBubbleSize(context, 50)
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsTs7Override", true)
+        screen.selectedMtkDecoderName = { "OMX.MTK.VIDEO.DECODER.AVC" }
+        ReflectionHelpers.setField(screen, "page", "settings")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
+            ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.ADVANCED))
+
+        val visible = texts(screen).map { it.text.toString() }
+        val retained = listOf(R.string.side_panel, R.string.settings_launcher_bubble)
+        retained.forEach { assertTrue(screen.getString(it), screen.getString(it) in visible) }
+        assertTrue(visible.any { it.startsWith(screen.getString(R.string.settings_launcher_bubble_size) + " ·") })
+        val sidePanel = descendants(screen.window.decorView).filterIsInstance<Switch>()
+            .single { it.contentDescription == screen.getString(R.string.side_panel) }
+        assertTrue(sidePanel.isChecked)
+
+        val hidden = listOf(
+            R.string.settings_harman_fullscreen_experimental,
+            R.string.split_screen_areas,
+            R.string.carplay_rotation,
+            R.string.carplay_rotation_picture,
+            R.string.main_buffered_audio,
+            R.string.settings_car_bluetooth_audio,
+            R.string.efficient_video,
+            R.string.settings_mtk_decoder_tuning,
+            R.string.smooth_video,
+            R.string.settings_direct_video_output,
+            R.string.settings_low_latency_decoder,
+            R.string.settings_low_delay_h264_sps,
+            R.string.settings_h264_frame_end_marker,
+            R.string.call_echo_cancellation,
+            R.string.call_voice_filter,
+            R.string.phone_audio_route,
+            R.string.phone_audio_route_apps,
+            R.string.settings_disable_media_key_audio_focus,
+            R.string.contrib_audio_home_toggle_audio_focus,
+            R.string.audio_focus_auto_yield,
+            R.string.settings_speech_without_low_rates,
+            R.string.advanced_audio_channel_mapping,
+            R.string.settings_navigation_wheel_volume,
+        )
+        hidden.forEach { assertFalse(screen.getString(it), screen.getString(it) in visible) }
+
+        val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
+        val indexedTitles = index.map { ReflectionHelpers.getField<String>(it, "title") }
+        retained.forEach { assertTrue(screen.getString(it), screen.getString(it) in indexedTitles) }
+        hidden.forEach { assertFalse(screen.getString(it), screen.getString(it) in indexedTitles) }
     }
 
     @Test fun navigationAttenuationSliderSavesAndUpdatesActiveAudioWithoutReconnect() {

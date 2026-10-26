@@ -6,6 +6,7 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
 import android.util.Log
+import com.shilapi.xcertplay.network.Ts7HeadUnit
 
 /**
  * Optional, for head units whose screen turns: CarPlay gets a square canvas holding a landscape and a
@@ -22,11 +23,15 @@ object CarPlayRotation {
     /** How large a square to ask for; sharper is up to the screen's long side. */
     enum class Picture(val maxSide: Int?) { SMOOTHER(1920), SHARPER(null) }
 
-    fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
+    fun enabled(context: Context): Boolean = enabled(context, Ts7HeadUnit.detected)
+
+    internal fun enabled(context: Context, ts7: Boolean): Boolean = !ts7 && prefs(context).getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
 
-    fun picture(context: Context): Picture =
+    fun picture(context: Context): Picture = picture(context, Ts7HeadUnit.detected)
+
+    internal fun picture(context: Context, ts7: Boolean): Picture = if (ts7) Picture.SMOOTHER else
         Picture.entries.firstOrNull { it.name == prefs(context).getString(KEY_PICTURE, null) } ?: Picture.SMOOTHER
 
     fun setPicture(context: Context, picture: Picture) = prefs(context).edit().putString(KEY_PICTURE, picture.name).apply()

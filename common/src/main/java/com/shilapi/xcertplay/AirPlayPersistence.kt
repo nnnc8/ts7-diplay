@@ -196,7 +196,9 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadHevcEnabled(context: Context): Boolean =
+    fun loadHevcEnabled(context: Context): Boolean = loadHevcEnabled(context, Ts7HeadUnit.detected)
+
+    internal fun loadHevcEnabled(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_HEVC_ENABLED, false)
 
@@ -217,6 +219,9 @@ object AirPlayPersistence {
     }
 
     fun loadHevcSoftwareDecoderEnabled(context: Context): Boolean =
+        loadHevcSoftwareDecoderEnabled(context, Ts7HeadUnit.detected)
+
+    internal fun loadHevcSoftwareDecoderEnabled(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_HEVC_SOFTWARE_DECODER, false)
 
@@ -227,6 +232,9 @@ object AirPlayPersistence {
     }
 
     fun loadAdvancedAudioChannelMapping(context: Context): Boolean =
+        loadAdvancedAudioChannelMapping(context, Ts7HeadUnit.detected)
+
+    internal fun loadAdvancedAudioChannelMapping(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_ADVANCED_AUDIO_CHANNEL_MAPPING, false)
 
@@ -246,7 +254,9 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadAudioFocusEnabled(context: Context): Boolean =
+    fun loadAudioFocusEnabled(context: Context): Boolean = loadAudioFocusEnabled(context, Ts7HeadUnit.detected)
+
+    internal fun loadAudioFocusEnabled(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_AUDIO_FOCUS_ENABLED, false)
 
@@ -256,7 +266,9 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadAudioFocusAutoYield(context: Context): Boolean =
+    fun loadAudioFocusAutoYield(context: Context): Boolean = loadAudioFocusAutoYield(context, Ts7HeadUnit.detected)
+
+    internal fun loadAudioFocusAutoYield(context: Context, ts7: Boolean): Boolean = ts7 ||
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_AUDIO_FOCUS_AUTO_YIELD, true)
 
@@ -268,6 +280,9 @@ object AirPlayPersistence {
 
     /** Opt-out for head units that route physical volume buttons to DiPlay's focus owner. */
     fun loadDisableMediaKeyAudioFocus(context: Context): Boolean =
+        loadDisableMediaKeyAudioFocus(context, Ts7HeadUnit.detected)
+
+    internal fun loadDisableMediaKeyAudioFocus(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_DISABLE_MEDIA_KEY_AUDIO_FOCUS, false)
 
@@ -749,7 +764,9 @@ object AirPlayPersistence {
     }
 
     /** CarPlay's buffered music (Apple Music sends ahead over TCP); off by default, applies at reconnect. */
-    fun loadMainBufferedAudio(context: Context): Boolean =
+    fun loadMainBufferedAudio(context: Context): Boolean = loadMainBufferedAudio(context, Ts7HeadUnit.detected)
+
+    internal fun loadMainBufferedAudio(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_MAIN_BUFFERED_AUDIO, false)
 
     fun saveMainBufferedAudio(context: Context, enabled: Boolean) {
@@ -758,6 +775,9 @@ object AirPlayPersistence {
 
     /** Do not offer 8 and 16 kHz PCM for navigation prompts and alerts; applies at reconnect. */
     fun loadSpeechWithout8And16Khz(context: Context): Boolean =
+        loadSpeechWithout8And16Khz(context, Ts7HeadUnit.detected)
+
+    internal fun loadSpeechWithout8And16Khz(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SPEECH_WITHOUT_8_16_KHZ, false)
 
     fun saveSpeechWithout8And16Khz(context: Context, enabled: Boolean) {
@@ -765,14 +785,18 @@ object AirPlayPersistence {
     }
 
     /** Offer no CarPlay audio, so the iPhone keeps audio on its Bluetooth link with the car; applies at reconnect. */
-    fun loadCarBluetoothAudio(context: Context): Boolean =
+    fun loadCarBluetoothAudio(context: Context): Boolean = loadCarBluetoothAudio(context, Ts7HeadUnit.detected)
+
+    internal fun loadCarBluetoothAudio(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CAR_BLUETOOTH_AUDIO, false)
 
     fun saveCarBluetoothAudio(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CAR_BLUETOOTH_AUDIO, enabled).apply()
     }
 
-    fun loadSmoothVideo(context: Context): Boolean =
+    fun loadSmoothVideo(context: Context): Boolean = loadSmoothVideo(context, Ts7HeadUnit.detected)
+
+    internal fun loadSmoothVideo(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SMOOTH_VIDEO, false)
 
     fun saveSmoothVideo(context: Context, enabled: Boolean) {
@@ -780,7 +804,9 @@ object AirPlayPersistence {
     }
 
     /** MediaTek's legacy low-latency/no-reorder decoder path; opt-in and applied at reconnect. */
-    fun loadMtkDecoderTuning(context: Context): Boolean =
+    fun loadMtkDecoderTuning(context: Context): Boolean = loadMtkDecoderTuning(context, Ts7HeadUnit.detected)
+
+    internal fun loadMtkDecoderTuning(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_MTK_DECODER_TUNING, false)
 
     fun saveMtkDecoderTuning(context: Context, enabled: Boolean) {
@@ -791,8 +817,8 @@ object AirPlayPersistence {
     fun loadDirectVideoOutput(context: Context): Boolean =
         loadDirectVideoOutput(context, Ts7HeadUnit.detected)
 
-    internal fun loadDirectVideoOutput(context: Context, ts7: Boolean): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_DIRECT_VIDEO_OUTPUT, ts7)
+    internal fun loadDirectVideoOutput(context: Context, ts7: Boolean): Boolean = if (ts7) true else
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_DIRECT_VIDEO_OUTPUT, false)
 
     fun saveDirectVideoOutput(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_DIRECT_VIDEO_OUTPUT, enabled).apply()
@@ -805,7 +831,9 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_FPS_COUNTER, enabled).apply()
     }
 
-    fun loadLowLatencyDecoder(context: Context): Boolean =
+    fun loadLowLatencyDecoder(context: Context): Boolean = loadLowLatencyDecoder(context, Ts7HeadUnit.detected)
+
+    internal fun loadLowLatencyDecoder(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LOW_LATENCY_DECODER, false)
 
     fun saveLowLatencyDecoder(context: Context, enabled: Boolean) {
@@ -815,8 +843,8 @@ object AirPlayPersistence {
     fun loadLowDelayH264Sps(context: Context): Boolean =
         loadLowDelayH264Sps(context, Ts7HeadUnit.detected)
 
-    internal fun loadLowDelayH264Sps(context: Context, ts7: Boolean): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LOW_DELAY_H264_SPS, ts7)
+    internal fun loadLowDelayH264Sps(context: Context, ts7: Boolean): Boolean = if (ts7) true else
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LOW_DELAY_H264_SPS, false)
 
     fun saveLowDelayH264Sps(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -827,10 +855,10 @@ object AirPlayPersistence {
         loadH264FrameEndMarker(context, Ts7HeadUnit.detected)
 
     internal fun loadH264FrameEndMarker(context: Context, ts7: Boolean): H264FrameEndMarkerMode {
-        val default = if (ts7) H264FrameEndMarkerMode.APPEND else H264FrameEndMarkerMode.OFF
+        if (ts7) return H264FrameEndMarkerMode.APPEND
         return H264FrameEndMarkerMode.fromKey(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_H264_FRAME_END_MARKER, default.key),
+                .getString(KEY_H264_FRAME_END_MARKER, H264FrameEndMarkerMode.OFF.key),
         )
     }
 
@@ -857,6 +885,9 @@ object AirPlayPersistence {
 
     /** DiPlay's own experimental echo canceller on CarPlay call audio; opt-in, applies at reconnect. */
     fun loadCallEchoCancellation(context: Context): Boolean =
+        loadCallEchoCancellation(context, Ts7HeadUnit.detected)
+
+    internal fun loadCallEchoCancellation(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CALL_ECHO_CANCELLATION, false)
 
     fun saveCallEchoCancellation(context: Context, enabled: Boolean) {
@@ -864,7 +895,9 @@ object AirPlayPersistence {
     }
 
     /** Experimental bass cut on CarPlay call audio; opt-in, applies at reconnect. */
-    fun loadCallVoiceFilter(context: Context): Boolean =
+    fun loadCallVoiceFilter(context: Context): Boolean = loadCallVoiceFilter(context, Ts7HeadUnit.detected)
+
+    internal fun loadCallVoiceFilter(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CALL_VOICE_FILTER, false)
 
     fun saveCallVoiceFilter(context: Context, enabled: Boolean) {
@@ -1504,7 +1537,9 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadHarmanFullscreen(context: Context): Boolean =
+    fun loadHarmanFullscreen(context: Context): Boolean = loadHarmanFullscreen(context, Ts7HeadUnit.detected)
+
+    internal fun loadHarmanFullscreen(context: Context, ts7: Boolean): Boolean = !ts7 &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_HARMAN_FULLSCREEN, false)
 
