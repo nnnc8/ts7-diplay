@@ -68,6 +68,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -6716,12 +6717,16 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun initializeSessionLog() {
         val logFile = File(File(filesDir, "logs"), "diplay.log")
-        val activeLog = SessionLogFile(logFile)
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        val versionName = packageInfo.versionName ?: "unknown"
+        val versionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
+        val activeLog = SessionLogFile(logFile, versionName, versionCode,
+            com.shilapi.xcertplay.network.Ts7HeadUnit.detected)
         runCatching {
             activeLog.reset(
                 "DiPlay log started " +
                     "${SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())} " +
-                    "pid=${Process.myPid()} path=${logFile.absolutePath}",
+                    "version=${activeLog.versionLabel} pid=${Process.myPid()} path=${logFile.absolutePath}",
             )
         }
         sessionLog = activeLog

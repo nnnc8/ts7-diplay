@@ -16,6 +16,9 @@
 - 音訊 Receive 行回到原有欄位。只有 `Receive: video` 會輸出 `readMs` 與 `decryptMs`。
 - 非 TS7 車機的 timeout 檢查會在取得鎖前結束。既有畫面行為不變。
 - 沒有改音訊播放程式或音訊參數，也沒有改解析度、影格率、`KEY_OPERATING_RATE`、`frameEndMarker` 或 `poll(5)`。
+- 診斷報告在 TS7 上只附目前版本的 `diplay.log` 與 `previous.log`，最近兩份合計約不超過 1 MB。其他版本或沒有版本標頭的檔案只顯示未納入原因。
+- 每份新 log 都會在第一行記錄 app 版本。log 超過 512 KB 輪替後，新檔也會寫入版本標頭；TS7 只輪替出 `previous.log`。
+- 升級後第一份報告不會附上舊版 log 內容。報告仍會列出舊檔的版本，或標示版本不明。
 
 ## 診斷報告怎麼看
 
@@ -44,3 +47,4 @@
 - 看門狗的 3 張門檻能否正確區分暫停送畫面與 decoder 卡住。
 - `input_stall` 與例外 fallback 能否在 TS7 上恢復畫面。
 - `readMs`、`decryptMs` 與 `inputAcquireMs` 能否在實車報告中協助定位卡頓來源。
+- 診斷報告只保留本版最近兩份 log，能否讓 TS7 實車報告更容易判讀。

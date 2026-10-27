@@ -6084,11 +6084,25 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("--- Last crash recorded by DiPlay ---")
         appendLine(CrashRecord.report(appContext))
         appendLine()
-        for (name in SessionLogFile.REPORT_NAMES) {
-            val file = File(appContext.filesDir, "logs/$name")
-            if (file.isFile) {
-                appendLine("--- $name ---")
-                file.useLines { lines -> lines.forEach { line -> DiagnosticRedactor.redact(line)?.let { appendLine(it) } } }
+        val ts7 = com.shilapi.xcertplay.network.Ts7HeadUnit.detected
+        val logDirectory = File(appContext.filesDir, "logs")
+        val logHeaders = SessionLogFile.REPORT_NAMES.mapNotNull { name ->
+            val file = File(logDirectory, name)
+            if (!file.isFile) return@mapNotNull null
+            DiagnosticReportLogHeader(name, file.useLines { it.firstOrNull() })
+        }
+        val includedLogs = SessionLogFile.reportNamesToInclude(logHeaders, version(), ts7).toSet()
+        for (header in logHeaders) {
+            if (header.name !in includedLogs) {
+                if (ts7) {
+                    val version = SessionLogFile.versionFromHeader(header.firstLine) ?: "unknown"
+                    appendLine("--- ${header.name}: not included (version $version) ---")
+                }
+                continue
+            }
+            appendLine("--- ${header.name} ---")
+            File(logDirectory, header.name).useLines { lines ->
+                lines.forEach { line -> DiagnosticRedactor.redact(line)?.let { appendLine(it) } }
             }
         }
     }

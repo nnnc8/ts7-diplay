@@ -18,6 +18,7 @@ DiPlay 是安卓車機上的無線／有線 CarPlay 接收程式。
 - TS7 專用送顯執行緒遇到輸入卡住，且 decoder 已收到新影格時，會 fallback、重建 decoder 並要求關鍵幀。
 - 送顯執行緒例外會記錄例外類別。音訊 Receive 行不再顯示影像用的 `readMs` 與 `decryptMs`。
 - 文件補充 `readMs` 與 `inputAcquireMs` 的判讀限制。非 TS7 的送顯行為維持不變。
+- TS7 診斷報告只附目前版本最近兩份 log，大小約不超過 1 MB。每份新 log 都記錄版本；升級後第一份報告不會附上舊版 log 內容。
 
 ## v21.5 修改（2026-10-27）
 
