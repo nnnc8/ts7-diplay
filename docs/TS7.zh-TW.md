@@ -7,8 +7,17 @@ DiPlay 是安卓車機上的無線／有線 CarPlay 接收程式。
 
 - 安裝包名：`com.shihab.diplay.ts7`
 - App 名稱：`DiPlay TS7`
-- 版本名稱：`0.2.21-ts7-wudi81-v21.5`
-- versionCode：`54`
+- 版本名稱：`0.2.21-ts7-wudi81-v21.6`
+- versionCode：`55`
+
+## v21.6 修改（2026-10-27）
+
+本版修正尚未在 TS7 實車驗證。詳細改動與診斷判讀方式見 [v21.6 發布說明](RELEASE-NOTES-ts7-v21.6.zh-TW.md)。
+
+- 看門狗只有在上次輸出後至少送進 3 張，而且 2 秒沒有輸出時才 fallback，避免把 iPhone 暫停送畫面誤判成執行緒卡住。
+- TS7 專用送顯執行緒遇到輸入卡住，且 decoder 已收到新影格時，會 fallback、重建 decoder 並要求關鍵幀。
+- 送顯執行緒例外會記錄例外類別。音訊 Receive 行不再顯示影像用的 `readMs` 與 `decryptMs`。
+- 文件補充 `readMs` 與 `inputAcquireMs` 的判讀限制。非 TS7 的送顯行為維持不變。
 
 ## v21.5 修改（2026-10-27）
 

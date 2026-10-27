@@ -36,11 +36,32 @@ internal fun shouldSkipOlderVideoOutput(
     ts7: Boolean,
 ): Boolean = ts7 && hasNewerReady && pacingDelayNanos == 0L && !framesAtOnce
 
+/** Falls back on an input stall only when the TS7 output worker has pending new input. */
+internal fun shouldFallbackOnInputStall(
+    ts7: Boolean,
+    outputThreadActive: Boolean,
+    inputQueuedSinceLastOutput: Int,
+): Boolean = ts7 && outputThreadActive && inputQueuedSinceLastOutput > 0
+
+/** Keeps the exception type in diagnostics while bounding the exported reason length. */
+internal fun outputThreadExceptionReason(exceptionClassName: String): String {
+    val typeName = exceptionClassName.substringAfterLast('.').ifBlank { "Exception" }
+    return ("exception:" + typeName).take(MAX_OUTPUT_THREAD_EXCEPTION_REASON_LENGTH)
+}
+
+internal const val MAX_OUTPUT_THREAD_EXCEPTION_REASON_LENGTH = 120
+
+// With the H.264 end marker off, the decoder can retain one or two frames. At 30 fps,
+// a real two-second output stall receives far more than three frames.
+private const val MIN_INPUTS_WITHOUT_OUTPUT_FOR_FALLBACK = 3
+
 /** Tracks decoded frames that are still in flight on the dedicated output thread. */
 internal class VideoOutputThreadWatchdog(
     private val timeoutNanos: Long,
 ) {
     var inFlight: Int = 0
+        private set
+    var inputQueuedSinceLastOutput: Int = 0
         private set
     private var lastOutputNanos = 0L
     private var timeoutArmed = false
@@ -51,10 +72,12 @@ internal class VideoOutputThreadWatchdog(
             timeoutArmed = true
         }
         inFlight++
+        inputQueuedSinceLastOutput++
     }
 
     fun outputDequeued(nowNanos: Long) {
         if (inFlight > 0) inFlight--
+        inputQueuedSinceLastOutput = 0
         if (inFlight > 0) {
             lastOutputNanos = nowNanos
             timeoutArmed = true
@@ -64,7 +87,12 @@ internal class VideoOutputThreadWatchdog(
     }
 
     fun fallbackReason(nowNanos: Long): String? =
-        if (inFlight > 0 && timeoutArmed && nowNanos - lastOutputNanos >= timeoutNanos) {
+        if (
+            inFlight > 0 &&
+            inputQueuedSinceLastOutput >= MIN_INPUTS_WITHOUT_OUTPUT_FOR_FALLBACK &&
+            timeoutArmed &&
+            nowNanos - lastOutputNanos >= timeoutNanos
+        ) {
             "no_output_2s"
         } else {
             null
@@ -72,6 +100,7 @@ internal class VideoOutputThreadWatchdog(
 
     fun reset() {
         inFlight = 0
+        inputQueuedSinceLastOutput = 0
         lastOutputNanos = 0L
         timeoutArmed = false
     }

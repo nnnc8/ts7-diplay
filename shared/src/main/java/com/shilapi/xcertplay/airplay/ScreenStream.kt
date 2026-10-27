@@ -69,7 +69,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
 
     private fun run(sock: Socket) {
         var failure: Throwable? = null
-        val stats = StreamReceiveStats("video", onDiagnostic)
+        val stats = StreamReceiveStats("video", onDiagnostic, includeTimingSummary = true)
         try {
             val input = sock.getInputStream()
             while (!closed.get()) {

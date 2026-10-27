@@ -1079,7 +1079,9 @@ private class VideoDecoder(
                 try {
                     outputFailure?.let { failure ->
                         outputFailure = null
-                        if (!fallbackOutputThread("exception")) onJobFailure("output", failure)
+                        if (!fallbackOutputThread(outputThreadExceptionReason(failure.javaClass.simpleName))) {
+                            onJobFailure("output", failure)
+                        }
                     }
                     when (job) {
                         is VideoJob.Config -> configureDecoder(job)
@@ -1111,7 +1113,6 @@ private class VideoDecoder(
                     }
                     if (!isOutputThreadActive()) decoder?.let(::drainOutput)
                     checkOutputThreadTimeout()
-                    observeInFlight()
                     stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
@@ -1166,10 +1167,27 @@ private class VideoDecoder(
         return true
     }
 
+    private fun fallbackOutputThreadOnInputStall(): Boolean {
+        if (!Ts7HeadUnit.detected) return false
+        val reason = "input_stall"
+        val switched = synchronized(outputLock) {
+            if (shouldFallbackOnInputStall(
+                    ts7 = true,
+                    outputThreadActive = isOutputThreadActive(),
+                    inputQueuedSinceLastOutput = outputWatchdog.inputQueuedSinceLastOutput,
+                )
+            ) enterOutputThreadFallback(reason) else false
+        }
+        if (!switched) return false
+        finishOutputThreadFallback(reason)
+        return true
+    }
+
     private fun checkOutputThreadTimeout() {
+        if (!Ts7HeadUnit.detected) return
         var reason: String? = null
         synchronized(outputLock) {
-            if (Ts7HeadUnit.detected && outputThreadActive) {
+            if (outputThreadActive) {
                 val candidate = outputWatchdog.fallbackReason(System.nanoTime())
                 if (candidate != null && enterOutputThreadFallback(candidate)) reason = candidate
             }
@@ -1201,10 +1219,6 @@ private class VideoDecoder(
 
     private fun isOutputThreadActive(): Boolean = outputThread != null && outputThreadActive
 
-    private fun observeInFlight() {
-        synchronized(outputLock) { stats.onInFlight(outputWatchdog.inFlight) }
-    }
-
     /** The output thread: waits on the current codec's output and releases each frame as it comes. */
     private fun runOutput() {
         runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
@@ -1212,13 +1226,17 @@ private class VideoDecoder(
         val nextInfo = MediaCodec.BufferInfo()
         while (running && outputThreadActive) {
             val codec = synchronized(outputLock) {
-                val current = decoder
-                if (current == null || outputFailure != null) {
-                    try { outputLock.wait(OUTPUT_IDLE_WAIT_MS) } catch (_: InterruptedException) { return }
+                if (!outputThreadActive) {
                     null
                 } else {
-                    dequeuing = current
-                    current
+                    val current = decoder
+                    if (current == null || outputFailure != null) {
+                        try { outputLock.wait(OUTPUT_IDLE_WAIT_MS) } catch (_: InterruptedException) { return }
+                        null
+                    } else {
+                        dequeuing = current
+                        current
+                    }
                 }
             } ?: continue
             var index = MediaCodec.INFO_TRY_AGAIN_LATER
@@ -1669,6 +1687,7 @@ private class VideoDecoder(
         if (index < 0) {
             dropMtkTuning("video decoder input stalled")
             dropMtkCodec2LowLatency("video decoder input stalled")
+            if (fallbackOutputThreadOnInputStall()) return
             recover("video decoder input stalled")
             return
         }

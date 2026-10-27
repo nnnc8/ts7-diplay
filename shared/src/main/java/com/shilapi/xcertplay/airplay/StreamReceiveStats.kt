@@ -7,6 +7,7 @@ internal class StreamReceiveStats(
     private val label: String,
     private val report: (String) -> Unit,
     private val decryptImplementation: () -> String = { AirPlayCrypto.chachaImplementation },
+    private val includeTimingSummary: Boolean = false,
     private val nowNs: () -> Long = System::nanoTime,
 ) {
     private var windowStart = nowNs()
@@ -33,9 +34,9 @@ internal class StreamReceiveStats(
     private var decryptBytes = 0L
     private var decryptSumNs = 0L
     private var maxDecryptNs = 0L
-    private val readMicros = IntArray(MAX_TIMING_SAMPLES)
+    private val readMicros = if (includeTimingSummary) IntArray(MAX_TIMING_SAMPLES) else intArrayOf()
     private var readSamples = 0
-    private val decryptMicros = IntArray(MAX_TIMING_SAMPLES)
+    private val decryptMicros = if (includeTimingSummary) IntArray(MAX_TIMING_SAMPLES) else intArrayOf()
     private var decryptTimingSamples = 0
 
     fun reading() { readStart = nowNs() }
@@ -44,7 +45,7 @@ internal class StreamReceiveStats(
         processingStart = nowNs()
         val readNs = processingStart - readStart
         maxReadNs = maxOf(maxReadNs, readNs)
-        if (readSamples < readMicros.size) {
+        if (includeTimingSummary && readSamples < readMicros.size) {
             readMicros[readSamples++] = durationMicros(readNs)
         }
         if (readNs >= LONG_READ_NS) readsOver250Ms++
@@ -83,7 +84,7 @@ internal class StreamReceiveStats(
         decryptBytes += size
         decryptSumNs += durationNs
         maxDecryptNs = maxOf(maxDecryptNs, durationNs)
-        if (decryptTimingSamples < decryptMicros.size) {
+        if (includeTimingSummary && decryptTimingSamples < decryptMicros.size) {
             decryptMicros[decryptTimingSamples++] = durationMicros(durationNs)
         }
     }
@@ -104,7 +105,8 @@ internal class StreamReceiveStats(
             "windowMs=${(now - windowStart).coerceAtLeast(0) / 1_000_000} " +
             "readsOver250Ms=$readsOver250Ms seqGapAfterReadOver250Ms=$seqGapAfterReadOver250Ms " +
             "seqMissingAfterReadOver250Ms=$seqMissingAfterReadOver250Ms" + decryptSummary() +
-            " decryptImpl=${decryptImplementation()}" + timingSummary()) }
+            " decryptImpl=${decryptImplementation()}" +
+            (if (includeTimingSummary) timingSummary() else "")) }
         windowStart = now
         decryptSamples = 0
         decryptBytes = 0

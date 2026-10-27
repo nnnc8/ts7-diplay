@@ -30,7 +30,7 @@ class StreamReceiveStatsTest {
     @Test fun separatesSocketWaitFromLocalProcessingAndTracksSequenceWrap() {
         var clock = 0L
         val output = mutableListOf<String>()
-        val stats = StreamReceiveStats("audio", output::add) { clock }
+        val stats = StreamReceiveStats("video", output::add, includeTimingSummary = true) { clock }
         fun packet(sequence: Int) {
             stats.reading()
             clock += 400_000_000L
@@ -70,7 +70,12 @@ class StreamReceiveStatsTest {
     @Test fun decryptTimingIsReportedOnlyWhenRecordedAndThenReset() {
         var clock = 0L
         val output = mutableListOf<String>()
-        val stats = StreamReceiveStats("video", output::add, decryptImplementation = { "native" }) { clock }
+        val stats = StreamReceiveStats(
+            "video",
+            output::add,
+            decryptImplementation = { "native" },
+            includeTimingSummary = true,
+        ) { clock }
         stats.received(1_000)
         stats.decrypted(2_000_000, 500_000)
         stats.decrypted(500_000, 250_000)
@@ -87,5 +92,20 @@ class StreamReceiveStatsTest {
         assertTrue(output.last().endsWith(
             "decryptImpl=native readMs=0.0/0.0 decryptMs=0.0/0.0",
         ))
+    }
+
+    @Test fun audioReceiveSummaryOmitsVideoTimingFieldsByDefault() {
+        var clock = 0L
+        val output = mutableListOf<String>()
+        val stats = StreamReceiveStats("audio", output::add, decryptImplementation = { "native" }) { clock }
+        stats.reading()
+        clock = 12_000_000L
+        stats.received(100)
+        stats.processed()
+        stats.flush(ended = true)
+
+        assertFalse(output.single().contains(" readMs="))
+        assertFalse(output.single().contains(" decryptMs="))
+        assertTrue(output.single().endsWith("decryptImpl=native"))
     }
 }
